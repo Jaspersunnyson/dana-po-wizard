@@ -1,0 +1,1589 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dana — PO/Contract Wizard (v5.5)</title>
+
+  <!-- libs -->
+  <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.7/dist/pizzip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.7/dist/pizzip-utils.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.38.2/build/docxtemplater.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+  <style>
+  :root {
+    --bg: #f8fafc;
+    --panel: #ffffff;
+    --text: #1e293b;
+    --muted: #64748b;
+    --primary: #2563eb;
+    --primary-light: #eff6ff;
+    --primary-dark: #1d4ed8;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --error: #ef4444;
+    --border: #e2e8f0;
+    --chip: #f1f5f9;
+    --radius: 12px;
+    --shadow: 0 4px 12px -2px rgba(0,0,0,.08);
+    --shadow-lg: 0 10px 25px -5px rgba(0,0,0,.1);
+    --font-fa: "Vazirmatn", Tahoma, Arial, sans-serif;
+    --transition: all 0.2s ease;
+  }
+  
+  body.dark {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --primary: #60a5fa;
+    --primary-light: #1e3a8a;
+    --primary-dark: #3b82f6;
+    --border: #334155;
+    --chip: #334155;
+  }
+  
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  
+  body {
+    margin: 0;
+    font-family: var(--font-fa);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    transition: var(--transition);
+  }
+  
+  h2 {
+    font-size: 24px;
+    margin: 0 0 20px;
+    font-weight: 700;
+  }
+  
+  h3 {
+    font-size: 18px;
+    margin: 0 0 16px;
+    font-weight: 600;
+  }
+  
+  h4 {
+    font-size: 16px;
+    margin: 0 0 8px;
+    font-weight: 600;
+  }
+  
+  .hidden {
+    display: none;
+  }
+  
+  .mt-16 {
+    margin-top: 16px;
+  }
+  
+  .mt-8 {
+    margin-top: 8px;
+  }
+  
+  .mb-16 {
+    margin-bottom: 16px;
+  }
+  
+  .mb-8 {
+    margin-bottom: 8px;
+  }
+  
+  /* Header */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    background: rgba(255,255,255,.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    transition: var(--transition);
+  }
+  
+  body.dark header {
+    background: rgba(30, 41, 59, .85);
+  }
+  
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 700;
+    font-size: 18px;
+  }
+  
+  .logo {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #60a5fa, #34d399);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    font-size: 14px;
+  }
+  
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: var(--radius);
+    background: var(--chip);
+    transition: var(--transition);
+  }
+  
+  .toggle:hover {
+    background: var(--border);
+  }
+  
+  .toggle input {
+    display: none;
+  }
+  
+  .toggle span {
+    font-size: 18px;
+  }
+  
+  /* Stepper */
+  .stepper {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 16px auto 24px;
+    max-width: 1200px;
+    padding: 0 16px;
+  }
+  
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--muted);
+    flex: 1;
+    min-width: 140px;
+    justify-content: center;
+    transition: var(--transition);
+    cursor: pointer;
+  }
+  
+  .step:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+  
+  .step.active {
+    background: linear-gradient(135deg, var(--primary), #60a5fa);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 6px 20px -4px rgba(37, 99, 235, 0.4);
+  }
+  
+  .step span {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #eef2ff;
+    color: #1d4ed8;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  
+  body.dark .step span {
+    background: #1b223c;
+    color: #93c5fd;
+  }
+  
+  .step.active span {
+    background: rgba(255,255,255,0.2);
+    color: white;
+  }
+  
+  /* Container */
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 16px 40px;
+  }
+  
+  /* Cards */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+  }
+  
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: var(--shadow);
+    transition: var(--transition);
+  }
+  
+  .card:hover {
+    box-shadow: var(--shadow-lg);
+  }
+  
+  .card.radio {
+    cursor: pointer;
+  }
+  
+  .card.radio input {
+    display: none;
+  }
+  
+  .card.radio input:checked + .card-content {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+  
+  .card-content {
+    padding: 12px;
+    border: 2px solid transparent;
+    border-radius: var(--radius);
+    transition: var(--transition);
+  }
+  
+  /* Grid */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 16px;
+  }
+  
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .field.check {
+    flex-direction: row;
+    align-items: center;
+  }
+  
+  label {
+    font-size: 14px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  
+  input, select, textarea {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--text);
+    outline: none;
+    transition: var(--transition);
+    font-family: var(--font-fa);
+  }
+  
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+  
+  textarea {
+    min-height: 120px;
+    resize: vertical;
+  }
+  
+  .full {
+    grid-column: 1 / -1;
+  }
+  
+  .six {
+    grid-column: span 6;
+  }
+  
+  .four {
+    grid-column: span 4;
+  }
+  
+  .three {
+    grid-column: span 3;
+  }
+  
+  @media (max-width: 980px) {
+    .six, .four, .three {
+      grid-column: 1 / -1;
+    }
+  }
+  
+  /* Table */
+  .table-scroll {
+    overflow-x: auto;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  
+  th, td {
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    text-align: center;
+  }
+  
+  th {
+    background: var(--primary-light);
+    font-weight: 600;
+  }
+  
+  body.dark th {
+    background: var(--primary-light);
+  }
+  
+  /* Row */
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  
+  .between {
+    justify-content: space-between;
+  }
+  
+  /* Chips */
+  .chips {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  
+  .chip {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--chip);
+    cursor: pointer;
+    user-select: none;
+    transition: var(--transition);
+    font-size: 14px;
+  }
+  
+  .chip:hover {
+    background: var(--border);
+  }
+  
+  .chip.on {
+    border-color: var(--primary);
+    background: var(--primary-light);
+    color: var(--primary);
+  }
+  
+  /* Actions */
+  .actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 24px;
+    position: sticky;
+    bottom: 0;
+    background: var(--bg);
+    padding: 16px 0;
+    z-index: 10;
+  }
+  
+  .btn {
+    padding: 12px 20px;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .btn.primary {
+    background: linear-gradient(90deg, var(--primary), #60a5fa);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+  }
+  
+  .btn.primary:hover {
+    background: linear-gradient(90deg, var(--primary-dark), var(--primary));
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+  }
+  
+  .btn.secondary {
+    background: var(--chip);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  
+  .btn.secondary:hover {
+    background: var(--border);
+  }
+  
+  .btn.warn {
+    background: var(--warn);
+    color: white;
+  }
+  
+  .btn.warn:hover {
+    background: #d97706;
+  }
+  
+  .btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  
+  /* Preview */
+  .preview-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  
+  .preview-card header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 700;
+    position: static;
+    backdrop-filter: none;
+  }
+  
+  .preview-body {
+    padding: 20px;
+    min-height: 300px;
+    max-height: 500px;
+    overflow-y: auto;
+  }
+  
+  /* Upload */
+  .upload-box {
+    margin-top: 16px;
+  }
+  
+  .upload-box input[type=file] {
+    width: 100%;
+    padding: 8px;
+  }
+  
+  /* Hint */
+  .hint {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    background: var(--chip);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  
+  /* Status */
+  .status {
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .status.error {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--error);
+  }
+  
+  .status.success {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--ok);
+  }
+  
+  /* Badge */
+  .badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  
+  .badge.disabled {
+    background: var(--chip);
+    color: var(--muted);
+  }
+  
+  .badge.warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warn);
+  }
+  
+  /* Section */
+  .section {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 24px;
+    box-shadow: var(--shadow);
+    margin-bottom: 24px;
+  }
+  
+  /* Progress bar */
+  .progress-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 8px 0 16px;
+  }
+  
+  .progress {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), #60a5fa);
+    transition: width 0.3s ease;
+  }
+  
+  /* Template selector */
+  .template-option {
+    position: relative;
+  }
+  
+  .template-option .badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+  }
+  
+  /* Clause options */
+  .clause-option {
+    margin-bottom: 12px;
+  }
+  
+  .clause-option input[type="radio"] {
+    display: none;
+  }
+  
+  .clause-option label {
+    display: block;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: var(--transition);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  
+  .clause-option input[type="radio"]:checked + label {
+    border-color: var(--primary);
+    background: var(--primary-light);
+  }
+  
+  .clause-option label:hover {
+    border-color: var(--primary);
+  }
+  
+  /* Form group */
+  .form-group {
+    margin-bottom: 20px;
+  }
+  
+  /* Item row */
+  .item-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .item-row:last-child {
+    border-bottom: none;
+  }
+  
+  .item-row input {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  
+  /* Attachment row */
+  .attachment-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .attachment-row:last-child {
+    border-bottom: none;
+  }
+  
+  /* Loading */
+  .loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 50%;
+    border-top-color: #fff;
+    animation: spin 1s ease-in-out infinite;
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  /* Welcome message */
+  .welcome {
+    text-align: center;
+    padding: 40px 20px;
+  }
+  
+  .welcome-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+  }
+  
+  .welcome h2 {
+    margin-bottom: 12px;
+  }
+  
+  .welcome p {
+    color: var(--muted);
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  
+  /* Pill */
+  .pill {
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--primary-light);
+    color: var(--primary);
+    font-size: 12px;
+    border: 1px solid var(--primary);
+    font-weight: 500;
+  }
+  
+  /* Header buttons */
+  .header-buttons {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  
+  .header-buttons .btn {
+    font-size: 14px;
+    padding: 8px 12px;
+  }
+  
+  .header-file-input {
+    display: none;
+  }
+  /* Cleaner inputs for items table */
+  #itemsTable input {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    width: 100%;
+    font-size: 14px;
+    transition: border-color .2s;
+  }
+  #itemsTable input:focus {
+    border-color: var(--primary);
+    outline: none;
+  }
+  #itemsTable td {
+    padding: 6px 4px;
+  }
+  </style>
+</head>
+<body class="light">
+<header>
+  <div class="brand">
+    <div class="logo">D</div>
+    <span>Dana Energy – PO Wizard</span>
+  </div>
+  <div class="header-buttons">
+    <button class="btn secondary" id="exportJson">Export JSON</button>
+    <button class="btn secondary" id="importJsonBtn">Import JSON</button>
+    <input type="file" id="importJson" accept="application/json" class="header-file-input">
+    <label class="toggle">
+      <input type="checkbox" id="darkMode">
+      <span>🌙</span>
+    </label>
+  </div>
+</header>
+
+<div class="stepper">
+  <div class="step active" data-stage="1"><span>۱</span>الگو</div>
+  <div class="step" data-stage="3"><span>۲</span>اطلاعات</div>
+  <div class="step" data-stage="4"><span>۳</span>بندها</div>
+  <div class="step" data-stage="p"><span>۴</span>پیش‌نمایش</div>
+</div>
+
+<main class="container">
+  <!-- Stage 1 -->
+  <section id="stage1" class="stage">
+    <div class="section">
+      <h2>۱. انتخاب الگو</h2>
+      <div class="cards">
+        <label class="card radio template-option">
+          <input type="radio" name="template" value="po-noban" checked>
+          <div class="card-content">
+            <h4>PO Draft – Noban</h4>
+            <p>برای خرید مستقیم از نوبان دکل</p>
+          </div>
+        </label>
+        <label class="card radio template-option">
+          <input type="radio" name="template" value="main-irr" disabled>
+          <div class="card-content">
+            <h4>قرارداد اصلی (ریالی)</h4>
+            <p>در دست ساخت</p>
+            <span class="badge disabled">به زودی</span>
+          </div>
+        </label>
+        <label class="card radio template-option">
+          <input type="radio" name="template" value="main-fx" disabled>
+          <div class="card-content">
+            <h4>قرارداد اصلی (ارزی)</h4>
+            <p>در دست ساخت</p>
+            <span class="badge disabled">به زودی</span>
+          </div>
+        </label>
+      </div>
+      
+      <div class="form-group mt-16">
+        <h3>الگوی اختصاصی</h3>
+        <p class="hint mb-8">اگر الگوی اختصاصی دارید اینجا بارگذاری کنید (اختیاری)</p>
+        <input type="file" id="templateFile" accept=".docx">
+      </div>
+    </div>
+    
+    <div class="actions">
+      <span class="hint">اگر فایل الگو ندهید از مسیر <code>template/po-noban.template.docx</code> خوانده می‌شود.</span>
+      <button class="btn primary" id="go3">
+        ادامه
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10.5 8L6.5 4V12L10.5 8Z" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- Stage 3 -->
+  <section id="stage3" class="stage hidden">
+    <div class="section">
+      <h2>۲. اطلاعات تراکنش</h2>
+      <div class="progress-bar">
+        <div class="progress" style="width: 30%"></div>
+      </div>
+      
+      <div class="grid">
+        <div class="field three">
+          <label>شماره PO/Contract</label>
+          <input id="poNumber" placeholder="مثال: PO-2023-001">
+        </div>
+        <div class="field three">
+          <label>تاریخ صدور</label>
+          <input id="issueDate" type="date">
+        </div>
+        <div class="field three">
+          <label>ارز <span class="pill" id="currencyFaPill">ریال</span></label>
+          <select id="currency">
+            <option value="IRR">ریال</option>
+            <option value="USD">دلار آمریکا</option>
+            <option value="EUR">یورو</option>
+            <option value="AED">درهم</option>
+          </select>
+        </div>
+        <div class="field three">
+          <label>مبلغ بدون VAT</label>
+          <input id="amount" type="number" min="0" step="1" placeholder="0">
+        </div>
+
+        <div class="field full">
+          <label>موضوع خرید</label>
+          <input id="subject" placeholder="توضیح مختصر درباره موضوع خرید">
+        </div>
+        <div class="field full">
+          <label>نام پروژه</label>
+          <input id="projectName" placeholder="نام پروژه مربوطه">
+        </div>
+
+        <div class="field three">
+          <label>نام سازنده</label>
+          <input id="manufacturerName" placeholder="نام شرکت سازنده">
+        </div>
+        <div class="field three">
+          <label>کشور سازنده</label>
+          <input id="manufacturerCountry" placeholder="کشور سازنده">
+        </div>
+        <div class="field three">
+          <label>مهلت تحویل (روز)</label>
+          <input id="deliveryDeadlineDays" type="number" min="1" placeholder="30">
+        </div>
+        <div class="field three">
+          <label>مبدأ شمارش تحویل</label>
+          <input id="leadtimeTrigger" placeholder="انعقاد قرارداد / واریز پیش‌پرداخت">
+        </div>
+
+        <div class="field three check">
+          <label><input id="allowBuyerRep" type="checkbox"> اجازهٔ نمایندهٔ خریدار برای تغییر برنامهٔ تحویل</label>
+        </div>
+        <div class="field three check">
+          <label><input id="hasWarranty" type="checkbox"> وجود گارانتی</label>
+        </div>
+        <div class="field three">
+          <label>مدت گارانتی (ماه)</label>
+          <input id="warrantyMonths" type="number" min="0" placeholder="12">
+        </div>
+        <div class="field three check">
+          <label><input id="fxSettlement" type="checkbox"> چاپ جملهٔ تسعیر</label>
+        </div>
+
+        <div class="field three">
+          <label>برچسب منبع نرخ</label>
+          <input id="fxRateSourceLabel" placeholder="سایت اعلامی خریدار / tgju.org">
+        </div>
+        <div class="field three">
+          <label>شماره پیشنهاد فروشنده</label>
+          <input id="offerNumber" placeholder="شماره پیشنهاد">
+        </div>
+        <div class="field three">
+          <label>تاریخ پیشنهاد فروشنده</label>
+          <input id="offerDate" placeholder="۱۴۰۳/۰۷/۱۲ یا 2025-10-04">
+        </div>
+      </div>
+    </div>
+
+    <!-- Items -->
+    <div class="section">
+      <div class="row between">
+        <h3>جدول اقلام</h3>
+        <div class="hint">ارز: <b id="currencyFaTag">ریال</b></div>
+      </div>
+      
+      <div class="table-scroll">
+        <table id="itemsTable">
+          <thead>
+            <tr>
+              <th>ردیف</th>
+              <th>مشخصات فنی</th>
+              <th>واحد</th>
+              <th>مقدار</th>
+              <th>قیمت واحد</th>
+              <th>قیمت کل</th>
+              <th>عملیات</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot>
+            <tr>
+              <th colspan="5" style="text-align:left">جمع ناخالص</th>
+              <th id="totalNetText" style="text-align:left">۰</th>
+              <th></th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      
+      <div class="row between mt-16">
+        <button class="btn secondary" id="addItem">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          افزودن ردیف
+        </button>
+        <button class="btn secondary" id="clearItems">حذف همه ردیف‌ها</button>
+      </div>
+    </div>
+
+    <!-- Attachments -->
+    <div class="section">
+      <h3>پیوست‌ها (عنوان + شماره + تاریخ)</h3>
+      <button class="btn secondary" id="addAttachment">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        افزودن پیوست
+      </button>
+      <div id="attachmentsArea" class="mt-16"></div>
+    </div>
+
+    <!-- Signers -->
+    <div class="section">
+      <h3>امضاکنندگان دانا</h3>
+      <div class="chips">
+        <div class="chip on" id="chipY">غلامرضا یونسی — مدیرعامل و رئیس هیئت مدیره</div>
+        <div class="chip" id="chipKaveh">حافظ کاوه — نایب رئیس هیئت مدیره</div>
+      </div>
+      <div class="hint mt-8">زمانی که ارز «ریال» و مبلغ &lt; ۳۰ میلیارد و کاوه خاموش باشد ⇒ تک‌امضایی (فقط یونسی).</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn secondary" id="back1">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M5.5 8L9.5 4V12L5.5 8Z" fill="currentColor"/>
+        </svg>
+        بازگشت
+      </button>
+      <div class="row">
+        <span id="s3status"></span>
+        <button class="btn primary" id="go4">
+          ادامه
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M10.5 8L6.5 4V12L10.5 8Z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stage 4 -->
+  <section id="stage4" class="stage hidden">
+    <div class="section">
+      <h2>۳. انتخاب بندها (Noban)</h2>
+      <div class="progress-bar">
+        <div class="progress" style="width: 60%"></div>
+      </div>
+      <div id="clausesArea"></div>
+    </div>
+    
+    <div class="actions">
+      <button class="btn secondary" id="back3">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M5.5 8L9.5 4V12L5.5 8Z" fill="currentColor"/>
+        </svg>
+        بازگشت
+      </button>
+      <button class="btn primary" id="goP">
+        پیش‌نمایش
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10.5 8L6.5 4V12L10.5 8Z" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- Stage P -->
+  <section id="stageP" class="stage hidden">
+    <div class="section">
+      <h2>۴. پیش‌نمایش / دانلود</h2>
+      <div class="progress-bar">
+        <div class="progress" style="width: 100%"></div>
+      </div>
+      
+      <div class="preview-card">
+        <header>پیش‌نمایش Word</header>
+        <div id="preview" class="preview-body">
+          <div class="welcome">
+            <div class="welcome-icon">📄</div>
+            <h3>پیش‌نمایش سند</h3>
+            <p>پس از کلیک بر روی دکمه "پیش‌نمایش"، محتوای سند در اینجا نمایش داده خواهد شد.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="actions">
+      <button class="btn secondary" id="back4">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M5.5 8L9.5 4V12L5.5 8Z" fill="currentColor"/>
+        </svg>
+        بازگشت
+      </button>
+      <div>
+        <span class="hint">بدون سرور می‌توانید فایل الگو را در مرحله ۱ بارگذاری کنید. برای بارگذاری خودکار: <code>template/po-noban.template.docx</code></span>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="downloadDocx">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 11L8 3M8 11L5 8M8 11L11 8M3 13H13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          دانلود Word
+        </button>
+        <button class="btn warn" id="downloadJSON">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 11L8 3M8 11L5 8M8 11L11 8M3 13H13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          دانلود JSON
+        </button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+/* ---------- theme ---------- */
+(() => {
+  const dm = document.getElementById('darkMode');
+  dm.addEventListener('change', e => {
+    document.body.classList.toggle('dark', e.target.checked);
+    localStorage.setItem('theme', e.target.checked ? 'dark' : 'light');
+  });
+  const th = localStorage.getItem('theme');
+  if (th === 'dark') {
+    dm.checked = true;
+    document.body.classList.add('dark');
+  }
+})();
+
+/* ---------- router ---------- */
+function showStage(key) {
+  const id = key === 'p' ? 'stageP' : 'stage' + key;
+  document.querySelectorAll('.stage').forEach(s => s.classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  const tab = document.querySelector(`.step[data-stage="${key}"]`);
+  if (tab) tab.classList.add('active');
+}
+
+document.querySelectorAll('.step').forEach(step => {
+  step.addEventListener('click', () => {
+    showStage(step.dataset.stage);
+  });
+});
+
+document.getElementById('go3').addEventListener('click', () => showStage('3'));
+document.getElementById('back1').addEventListener('click', () => showStage('1'));
+document.getElementById('back3').addEventListener('click', () => showStage('3'));
+document.getElementById('back4').addEventListener('click', () => showStage('4'));
+
+/* ---------- state ---------- */
+function $(id) { return document.getElementById(id) }
+const CURRENCY_FA = {IRR: 'ریال', USD: 'دلار آمریکا', EUR: 'یورو', AED: 'درهم'};
+const state = {
+  template: 'po-noban',
+  templateFile: null,
+  meta: {
+    poNumber: '', issueDate: '', currency: 'IRR', currencyFa: 'ریال', amount: '',
+    subject: '', projectName: '', manufacturerName: '', manufacturerCountry: '',
+    deliveryDeadlineDays: '', leadtimeTrigger: '', allowBuyerRep: false,
+    hasWarranty: false, warrantyMonths: '', fxSettlement: false, fxRateSourceLabel: '',
+    offerNumber: '', offerDate: '', hasKaveh: false, isSingleSigner: true, totalNet: 0
+  },
+  items: [],
+  attachments: [],
+  clauses: {
+    partial: 'بنا بر صلاحدید و با تأیید موردی خریدار مجاز میباشد',
+    delivery: 'درب انبار فروشنده در ............... به صورت ترم تحویل EX-WORK.',
+    term: 'خریدار حق فسخ قرارداد را به اختیار و صلاحدید خود خواهد داشت.'
+  }
+};
+
+/* ---------- persistence (autosave) ---------- */
+const KEY = 'noban_v55';
+function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+(function load() {
+  const raw = localStorage.getItem(KEY);
+  if (!raw) return;
+  try {
+    const s = JSON.parse(raw);
+    Object.assign(state.meta, s.meta || {});
+    state.items = s.items || [];
+    state.attachments = s.attachments || [];
+    state.clauses = Object.assign(state.clauses, s.clauses || {});
+  } catch {}
+})();
+
+/* ---------- template file ---------- */
+$('templateFile').addEventListener('change', async (e) => {
+  const f = e.target.files?.[0];
+  state.templateFile = f ? await f.arrayBuffer() : null;
+  save();
+});
+
+/* ---------- step-3 bindings ---------- */
+['poNumber', 'issueDate', 'subject', 'projectName', 'manufacturerName', 'manufacturerCountry', 
+ 'deliveryDeadlineDays', 'leadtimeTrigger', 'warrantyMonths', 'fxRateSourceLabel', 
+ 'offerNumber', 'offerDate'].forEach(id => {
+  const el = $(id); 
+  if (state.meta[id]) el.value = state.meta[id];
+  el.addEventListener('input', e => {
+    state.meta[id] = e.target.value;
+    computeDerived();
+    save();
+  });
+});
+
+$('currency').value = state.meta.currency;
+$('currency').addEventListener('change', e => {
+  state.meta.currency = e.target.value;
+  computeDerived();
+  save();
+});
+
+$('amount').value = state.meta.amount;
+$('amount').addEventListener('input', e => {
+  state.meta.amount = e.target.value;
+  computeDerived();
+  save();
+});
+
+['allowBuyerRep', 'hasWarranty', 'fxSettlement'].forEach(id => {
+  $(id).checked = !!state.meta[id];
+  $(id).addEventListener('change', e => {
+    state.meta[id] = e.target.checked;
+    save();
+  });
+});
+
+$('warrantyMonths').value = state.meta.warrantyMonths || '';
+
+/* ---------- signers ---------- */
+$('chipKaveh').classList.toggle('on', !!state.meta.hasKaveh);
+$('chipKaveh').addEventListener('click', () => {
+  state.meta.hasKaveh = !state.meta.hasKaveh;
+  $('chipKaveh').classList.toggle('on', state.meta.hasKaveh);
+  computeDerived();
+  save();
+});
+
+/* ---------- derived ---------- */
+function computeDerived() {
+  state.meta.currencyFa = CURRENCY_FA[state.meta.currency] || state.meta.currency;
+  const n = Number(state.meta.amount || 0);
+  state.meta.isSingleSigner = (state.meta.currency === 'IRR' && n < 30000000000 && !state.meta.hasKaveh);
+  $('currencyFaPill').textContent = state.meta.currencyFa;
+  $('currencyFaTag').textContent = state.meta.currencyFa;
+}
+computeDerived();
+
+/* ---------- items ---------- */
+function recalcTotals() {
+  let t = 0;
+  state.items.forEach(r => {
+    const q = Number(r.qty || 0), p = Number(r.unitPrice || 0);
+    r.lineTotal = Math.round(q * p);
+    t += r.lineTotal;
+  });
+  state.meta.totalNet = t;
+  $('totalNetText').textContent = (t || 0).toLocaleString('fa-IR');
+}
+
+// ---------------- New item table rendering logic ------------------
+function buildItemTable() {
+  const tb = $('itemsTable').tBodies[0];
+  tb.innerHTML = '';                                    // once only
+  state.items.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="text-align:center">${i+1}</td>
+      <td><input class="item-inp" data-i="${i}" data-k="spec" value="${r.spec||''}" placeholder="مشخصات فنی"></td>
+      <td><input class="item-inp" data-i="${i}" data-k="unit" value="${r.unit||''}" placeholder="واحد"></td>
+      <td><input class="item-inp" data-i="${i}" data-k="qty" type="number" min="0" step="1" value="${r.qty||''}" placeholder="مقدار"></td>
+      <td><input class="item-inp" data-i="${i}" data-k="unitPrice" type="number" min="0" step="1" value="${r.unitPrice||''}" placeholder="قیمت واحد"></td>
+      <td style="text-align:left" class="lineTotal">${(r.lineTotal||0).toLocaleString('fa-IR')}</td>
+      <td><button class="btn" data-i="${i}" data-act="del">حذف</button></td>`;
+    tb.appendChild(tr);
+  });
+  attachItemListeners();               // wire once
+}
+
+function attachItemListeners() {
+  document.querySelectorAll('#itemsTable .item-inp').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const idx = +e.target.dataset.i, key = e.target.dataset.key;
+      state.items[idx][key] = e.target.value;
+      // update ONLY this row's total
+      const row  = e.target.closest('tr');
+      const q    = Number(state.items[idx].qty || 0);
+      const p    = Number(state.items[idx].unitPrice || 0);
+      const total= Math.round(q * p);
+      state.items[idx].lineTotal = total;
+      row.querySelector('.lineTotal').textContent = total.toLocaleString('fa-IR');
+      recalcTotals();   // update footer
+      save();
+    });
+  });
+  document.querySelectorAll('#itemsTable [data-act="del"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      state.items.splice(+e.target.dataset.i, 1);
+      buildItemTable();   // rebuild once
+      recalcTotals();
+      save();
+    });
+  });
+}
+
+document.getElementById('addItem').addEventListener('click', () => {
+  state.items.push({spec:'',unit:'',qty:'',unitPrice:'',lineTotal:0});
+  const tb = document.getElementById('itemsTable').tBodies[0];
+  const i  = state.items.length - 1;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td style="text-align:center">${i+1}</td>
+    <td><input class="item-inp" data-i="${i}" data-k="spec" value="" placeholder="مشخصات فنی"></td>
+    <td><input class="item-inp" data-i="${i}" data-k="unit" value="" placeholder="واحد"></td>
+    <td><input class="item-inp" data-i="${i}" data-k="qty" type="number" min="0" step="1" value="" placeholder="مقدار"></td>
+    <td><input class="item-inp" data-i="${i}" data-k="unitPrice" type="number" min="0" step="1" value="" placeholder="قیمت واحد"></td>
+    <td style="text-align:left" class="lineTotal">۰</td>
+    <td><button class="btn" data-i="${i}" data-act="del">حذف</button></td>`;
+  tb.appendChild(tr);
+  attachItemListeners();   // wire the new row only
+  save();
+});
+
+document.getElementById('clearItems').addEventListener('click', () => {
+  if (!confirm('ردیف‌ها پاک شوند؟')) return;
+  state.items = [];
+  buildItemTable();
+  recalcTotals();
+  save();
+});
+
+// initialize item table once
+buildItemTable();
+recalcTotals();
+
+/* ---------- attachments ---------- */
+function renderAttachments() {
+  const box = $('attachmentsArea');
+  box.innerHTML = '';
+  
+  if (state.attachments.length === 0) {
+    box.innerHTML = '<p class="hint">هنوز پیوستی اضافه نشده است.</p>';
+    return;
+  }
+  
+  state.attachments.forEach((a, i) => {
+    const row = document.createElement('div');
+    row.className = 'attachment-row';
+    row.innerHTML = `
+      <input placeholder="عنوان" value="${a.title || ''}" data-i="${i}" data-k="title">
+      <input placeholder="شماره" value="${a.number || ''}" data-i="${i}" data-k="number">
+      <input placeholder="تاریخ" value="${a.date || ''}" data-i="${i}" data-k="date">
+      <button class="btn" data-act="del" data-i="${i}">حذف</button>`;
+    
+    row.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('input', e => {
+        const idx = +e.target.dataset.i, k = e.target.dataset.k;
+        state.attachments[idx][k] = e.target.value;
+        save();
+      });
+    });
+    
+    row.querySelector('[data-act="del"]').addEventListener('click', e => {
+      state.attachments.splice(+e.target.dataset.i, 1);
+      renderAttachments();
+      save();
+    });
+    
+    box.appendChild(row);
+  });
+}
+
+$('addAttachment').addEventListener('click', () => {
+  state.attachments.push({title: '', number: '', date: ''});
+  renderAttachments();
+  save();
+});
+renderAttachments();
+
+/* ---------- clauses ---------- */
+const CLAUSES_NOBAN = [
+  {
+    id: 'partial',
+    title: 'حمل به دفعات',
+    options: [
+      'بنا بر صلاحدید و با تأیید موردی خریدار مجاز میباشد',
+      'بنا بر صلاحدید و با تأیید موردی خریدار مجاز نمیباشد'
+    ]
+  },
+  {
+    id: 'delivery',
+    title: 'مکان و ترم تحویل کالا',
+    options: [
+      'درب انبار فروشنده در ............... به صورت ترم تحویل EX-WORK.',
+      'درب انبار خریدار در اهواز به صورت ترم تحویل DDP. (حسب شمولیت ترم تحویل DDP اینکوترمز 2020، هزینه‌های مربوط به بارگیری، حمل و باراندازی کلیه تجهیزات موضوع قرارداد، به عهده فروشنده می‌باشد و فروشنده متعهد است به هزینه خود نسبت به تأمین و اخذ پوشش بیمه‌ای حمل تجهیزات مذکور اقدام کند. مسئولیت بروز هر نوع حادثه از قبیل آتش‌سوزی، سرقت، تصادف و غیره تا زمان تحویل کالا(های) موضوع قرارداد و تنظیم صورت‌جلسه تحویل بین نماینده خریدار و فروشنده، به عهده فروشنده است.)'
+    ]
+  },
+  {
+    id: 'term',
+    title: 'حق فسخ',
+    options: [
+      'خریدار حق فسخ قرارداد را به اختیار و صلاحدید خود خواهد داشت.',
+      'خريدار حق دارد به اختیار و صلاحدید خود نسبت به فسخ يا درخواست اصلاح، رفع عیب و یا جایگزینی آن‌ها (مطابق با صلاحدید خریدار) اقدام کند. چنانچه فروشنده ظرف مدت اعلامی خریدار نسبت به اصلاح، رفع عیب و یا جایگزینی کالاها اقدام ننماید، خریدار حق دارد رأساً اقدام نموده و کلیه هزینه‌های مربوطه را به مأخذ اعلامی خریدار به علاوه 15 (پانزده) درصد بالاسری بدون هر گونه تشریفات قضایی و اداری به صلاح‌دید خود از محل کلیه صورت‌حساب‌ها و یا مطالبات فروشنده نزد خریدار به موجب قرارداد حاضر و یا دیگر قراردادها (قبلي يا بعدي)، و یا سایر اموال فروشنده کسر و وصول نماید. فروشنده کلیه خیارات قانونی خود اعم از خیارات مشترک و اختصاصی را از خود سلب و ساقط می‌نماید.'
+    ]
+  }
+];
+
+function renderClauses() {
+  const area = $('clausesArea');
+  area.innerHTML = '';
+  
+  CLAUSES_NOBAN.forEach(g => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.marginBottom = '16px';
+    
+    const h = document.createElement('h3');
+    h.textContent = g.title;
+    card.appendChild(h);
+    
+    g.options.forEach((opt, idx) => {
+      const id = g.id + '_' + idx;
+      const optionDiv = document.createElement('div');
+      optionDiv.className = 'clause-option';
+      
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = g.id;
+      radio.id = id;
+      radio.checked = (state.clauses[g.id] === opt);
+      radio.addEventListener('change', () => {
+        state.clauses[g.id] = opt;
+        save();
+      });
+      
+      const lab = document.createElement('label');
+      lab.htmlFor = id;
+      lab.textContent = opt;
+      
+      optionDiv.appendChild(radio);
+      optionDiv.appendChild(lab);
+      card.appendChild(optionDiv);
+    });
+    
+    area.appendChild(card);
+  });
+}
+
+/* ---------- validation ---------- */
+function validateStage3() {
+  const m = state.meta, errs = [];
+  if (!m.issueDate) errs.push('تاریخ صدور');
+  if (!(m.subject || '').trim()) errs.push('موضوع');
+  if (!(m.projectName || '').trim()) errs.push('پروژه');
+  if (!(Number(m.amount) > 0)) errs.push('مبلغ');
+  if (state.items.length === 0) errs.push('حداقل یک ردیف کالا');
+  if (m.hasWarranty && !(Number(m.warrantyMonths) > 0)) errs.push('مدت گارانتی');
+  if (m.fxSettlement && !(m.fxRateSourceLabel || '').trim()) errs.push('برچسب منبع نرخ');
+  
+  if (errs.length) {
+    $('s3status').innerHTML = `<div class="status error">ناقص: ${errs.join('، ')}</div>`;
+  } else {
+    $('s3status').innerHTML = `<div class="status success">آمادهٔ مرحله ۴</div>`;
+  }
+  
+  return !errs.length;
+}
+
+/* ---------- nav ---------- */
+document.getElementById('go4').addEventListener('click', () => {
+  computeDerived();
+  if (!validateStage3()) return;
+  renderClauses();
+  showStage('4');
+});
+
+document.getElementById('goP').addEventListener('click', async () => {
+  computeDerived();
+  try {
+    $('preview').innerHTML = '<div class="welcome"><div class="loading"></div><p>در حال تولید پیش‌نمایش...</p></div>';
+    await doPreview();
+    showStage('p');
+  } catch (err) {
+    alert('پیش‌نمایش ممکن نشد. آیا فایل الگو در مسیر template/po-noban.template.docx است یا آپلود کرده‌اید؟');
+    console.error(err);
+  }
+});
+
+/* ---------- docx compose ---------- */
+async function fetchArrayBuffer(url) {
+  return new Promise((res, rej) => PizZipUtils.getBinaryContent(url, (err, data) => err ? rej(err) : res(data)));
+}
+
+async function getTemplateArrayBuffer() {
+  if (state.templateFile) return state.templateFile;
+  return await fetchArrayBuffer('./template/po-noban.template.docx');
+}
+
+function buildDocxData() {
+  const m = state.meta;
+  return {
+    poNumber: m.poNumber || '',
+    issueDate: m.issueDate || '',
+    subject: m.subject || '',
+    projectName: m.projectName || '',
+    manufacturerName: m.manufacturerName || '',
+    manufacturerCountry: m.manufacturerCountry || '',
+    amount: Number(m.amount || 0).toLocaleString('en-US'),
+    amountWords: m.amountWords || '',
+    currencyFa: m.currencyFa,
+    items: state.items.map((r, i) => ({
+      idx: i + 1,
+      spec: r.spec || '',
+      unit: r.unit || '',
+      qty: r.qty || '',
+      unitPrice: r.unitPrice || '',
+      lineTotal: (r.lineTotal || 0).toLocaleString('en-US')
+    })),
+    totalNet: (state.meta.totalNet || 0).toLocaleString('en-US'),
+    deliveryDeadlineDays: m.deliveryDeadlineDays || '',
+    leadtimeTrigger: m.leadtimeTrigger || '',
+    allowBuyerRep: !!m.allowBuyerRep,
+    hasWarranty: !!m.hasWarranty,
+    warrantyMonths: m.warrantyMonths || '',
+    fxSettlement: !!m.fxSettlement,
+    fxRateSourceLabel: m.fxRateSourceLabel || '',
+    offerNumber: m.offerNumber || '',
+    offerDate: m.offerDate || '',
+    attachments: state.attachments.map(a => ({
+      title: a.title || '',
+      number: a.number || '',
+      date: a.date || ''
+    })),
+    partial: state.clauses.partial,
+    delivery: state.clauses.delivery,
+    term: state.clauses.term,
+    hasKaveh: !!m.hasKaveh,
+    isSingleSigner: !!m.isSingleSigner
+  };
+}
+
+async function composeDocxBlob() {
+  const ab = await getTemplateArrayBuffer();
+  const zip = new PizZip(ab);
+  const doc = new window.docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true
+  });
+  doc.setData(buildDocxData());
+  doc.render();
+  return doc.getZip().generate({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  });
+}
+
+async function doPreview() {
+  const blob = await composeDocxBlob();
+  const arrayBuffer = await blob.arrayBuffer();
+  const { value: html } = await window.mammoth.convertToHtml({ arrayBuffer });
+  $('preview').innerHTML = html;
+}
+
+document.getElementById('downloadDocx').addEventListener('click', async () => {
+  try {
+    const btn = document.getElementById('downloadDocx');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<div class="loading"></div> در حال تولید...';
+    btn.disabled = true;
+    
+    const blob = await composeDocxBlob();
+    saveAs(blob, 'po-noban.docx');
+    
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  } catch (err) {
+    alert('ساخت Word ناموفق. مسیر/فایل الگو را بررسی کنید.');
+    console.error(err);
+  }
+});
+
+/* ---------- export/import JSON ---------- */
+function currentPayload() { 
+  return {
+    meta: state.meta, 
+    items: state.items, 
+    attachments: state.attachments, 
+    clauses: state.clauses
+  }; 
+}
+
+document.getElementById('exportJson').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(currentPayload(), null, 2)], {type: 'application/json'});
+  saveAs(blob, 'noban-v55.json');
+});
+
+document.getElementById('downloadJSON').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(currentPayload(), null, 2)], {type: 'application/json'});
+  saveAs(blob, 'noban-v55.json');
+});
+
+document.getElementById('importJsonBtn').addEventListener('click', () => {
+  document.getElementById('importJson').click();
+});
+
+document.getElementById('importJson').addEventListener('change', async (e) => {
+  const f = e.target.files?.[0]; 
+  if (!f) return;
+  
+  try {
+    const txt = await f.text();
+    const j = JSON.parse(txt);
+    
+    Object.assign(state.meta, j.meta || {});
+    state.items = j.items || [];
+    state.attachments = j.attachments || [];
+    state.clauses = Object.assign(state.clauses, j.clauses || {});
+    
+    // reflect UI
+    ['poNumber', 'issueDate', 'subject', 'projectName', 'manufacturerName', 'manufacturerCountry', 
+     'deliveryDeadlineDays', 'leadtimeTrigger', 'warrantyMonths', 'fxRateSourceLabel', 
+     'offerNumber', 'offerDate'].forEach(id => {
+      $(id).value = state.meta[id] || '';
+    });
+    
+    $('currency').value = state.meta.currency || 'IRR';
+    $('amount').value = state.meta.amount || '';
+    
+    ['allowBuyerRep', 'hasWarranty', 'fxSettlement'].forEach(id => {
+      $(id).checked = !!state.meta[id];
+    });
+    
+    $('chipKaveh').classList.toggle('on', !!state.meta.hasKaveh);
+    
+    computeDerived();
+    // rebuild item table and totals after import
+    buildItemTable();
+    recalcTotals();
+    renderAttachments();
+    renderClauses();
+    save();
+    
+    alert('وارد شد.');
+  } catch (err) {
+    alert('فایل JSON نامعتبر است.');
+  }
+});
+</script>
+</body>
+</html>
