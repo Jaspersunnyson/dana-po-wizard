@@ -731,7 +731,97 @@
   #itemsTable td {
     padding: 6px 4px;
   }
-  </style>
+
+  /* ----- delivery docs & signatories UI ----- */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .chips .chip {
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--chip);
+    cursor: pointer;
+    transition: var(--transition);
+  }
+  .chips .chip.selected {
+    border-color: #34d399;
+    box-shadow: 0 0 0 2px rgba(52,211,153,.2);
+  }
+  .doc-other {
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+  }
+  .doc-other input {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text);
+  }
+  #supplierSignWrap > div {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  #supplierSignWrap input {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text);
+  }
+  .btn.small {
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+  /* Uploads layout */
+  .upload-group {
+    margin-bottom: 12px;
+  }
+  .upload-group label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+  /* Radio group for calendar type */
+  .radio-group label {
+    margin-right: 12px;
+    cursor: pointer;
+  }
+  /* Delivery docs list */
+  .delivery-docs label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  /* Small button */
+  .btn.small {
+    padding: 4px 8px;
+    font-size: 12px;
+    margin-top: 8px;
+  }
+  /* Supplier signatory row */
+  .sign-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .sign-row input {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+</style>
 </head>
 <body class="light">
 <header>
@@ -752,9 +842,10 @@
 
 <div class="stepper">
   <div class="step active" data-stage="1"><span>۱</span>الگو</div>
-  <div class="step" data-stage="3"><span>۲</span>اطلاعات</div>
-  <div class="step" data-stage="4"><span>۳</span>بندها</div>
-  <div class="step" data-stage="p"><span>۴</span>پیش‌نمایش</div>
+  <div class="step" data-stage="2"><span>۲</span>بارگذاری‌ها</div>
+  <div class="step" data-stage="3"><span>۳</span>اطلاعات</div>
+  <div class="step" data-stage="4"><span>۴</span>بندها</div>
+  <div class="step" data-stage="p"><span>۵</span>پیش‌نمایش</div>
 </div>
 
 <main class="container">
@@ -797,7 +888,7 @@
     
     <div class="actions">
       <span class="hint">اگر فایل الگو ندهید از مسیر <code>template/po-noban.template.docx</code> خوانده می‌شود.</span>
-      <button class="btn primary" id="go3">
+      <button class="btn primary" id="go2">
         ادامه
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M10.5 8L6.5 4V12L10.5 8Z" fill="currentColor"/>
@@ -806,12 +897,50 @@
     </div>
   </section>
 
+  <!-- Stage 2 -->
+  <section id="stage2" class="stage hidden">
+    <div class="section">
+      <h2>۲. بارگذاری‌ها</h2>
+      <p class="hint mb-8">فایل‌های زیر را بارگذاری کنید. تنها فایل‌های بارگذاری‌شده به عنوان «پیوست» نمایش داده می‌شوند.</p>
+      <div class="upload-group">
+        <label>سند اصلی</label>
+        <input type="file" id="uploadMainDoc" accept=".pdf,.docx">
+      </div>
+      <div class="upload-group">
+        <label>ارزیابی نهایی / مقایسه</label>
+        <input type="file" id="uploadEvalDoc" accept=".pdf,.docx">
+      </div>
+      <div class="upload-group">
+        <label>مصوبه کمیسیون / صورتجلسه</label>
+        <input type="file" id="uploadCommissionDoc" accept=".pdf,.docx">
+      </div>
+      <div class="upload-group">
+        <label>پیشنهاد فروشنده (فنی + مالی)</label>
+        <input type="file" id="uploadVendorDoc" accept=".pdf,.docx">
+      </div>
+      <div class="upload-group">
+        <label>پیوست‌های دیگر</label>
+        <input type="file" id="uploadAdditionalDocs" accept=".pdf,.docx" multiple>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn secondary" id="back2">بازگشت</button>
+      <button class="btn primary" id="go3">ادامه
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10.5 8L6.5 4V12L10.5 8Z" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+  </section>
+
+
   <!-- Stage 3 -->
   <section id="stage3" class="stage hidden">
     <div class="section">
-      <h2>۲. اطلاعات تراکنش</h2>
+      <h2>۳. اطلاعات تراکنش</h2>
       <div class="progress-bar">
-        <div class="progress" style="width: 30%"></div>
+        <!-- progress roughly halfway for stage 3 of 5 -->
+        <div class="progress" style="width: 50%"></div>
       </div>
       
       <div class="grid">
@@ -819,7 +948,8 @@
           <label>شماره PO/Contract</label>
           <input id="poNumber" placeholder="مثال: PO-2023-001">
         </div>
-        <div class="field three">
+        <!-- Gregorian date input -->
+        <div class="field three cal-greg">
           <label>تاریخ صدور</label>
           <input id="issueDate" type="date">
         </div>
@@ -886,11 +1016,47 @@
           <input id="offerNumber" placeholder="شماره پیشنهاد">
         </div>
         <div class="field three">
-          <label>تاریخ پیشنهاد فروشنده</label>
+        <label>تاریخ پیشنهاد فروشنده</label>
           <input id="offerDate" placeholder="۱۴۰۳/۰۷/۱۲ یا 2025-10-04">
         </div>
+
+        <!-- Additional transaction fields -->
+        <div class="field three">
+          <label>نوع مهلت</label>
+          <select id="deadlineType">
+            <option value="">انتخاب کنید</option>
+            <option value="calendar">تقویمی</option>
+            <option value="work">کاری</option>
+          </select>
+        </div>
+        <div class="field three">
+          <label>Incoterms 2020</label>
+          <select id="incoterms">
+            <option value="">انتخاب کنید</option>
+            <option value="EXW">EXW</option>
+            <option value="FCA">FCA</option>
+            <option value="CPT">CPT</option>
+            <option value="CIP">CIP</option>
+            <option value="DAP">DAP</option>
+            <option value="DPU">DPU</option>
+            <option value="DDP">DDP</option>
+          </select>
+        </div>
+        <div class="field three">
+          <label>نوع تقویم</label>
+          <select id="calendarType">
+            <option value="gregorian">میلادی</option>
+            <option value="jalali">شمسی</option>
+          </select>
+        </div>
+        <div class="field three cal-jalali">
+          <label>تاریخ صدور (شمسی)</label>
+          <input id="issueDateJalali" placeholder="مثال: ۱۴۰۳/۰۷/۱۲">
+        </div>
+
       </div>
     </div>
+
 
     <!-- Items -->
     <div class="section">
@@ -946,7 +1112,24 @@
       <div id="attachmentsArea" class="mt-16"></div>
     </div>
 
-    <!-- Signers -->
+    <!-- Delivery documents required -->
+    <div class="section">
+      <h3>اسناد موردنیاز تحویل</h3>
+      <div id="deliveryDocsChips" class="chips"></div>
+      <div class="doc-other">
+        <input id="deliveryDocOther" placeholder="سایر...">
+        <button class="btn small secondary" id="addDeliveryDoc" type="button">افزودن</button>
+      </div>
+    </div>
+
+    <!-- Supplier signatories -->
+    <div class="section">
+      <h3>امضاکنندگان فروشنده (حداکثر ۳ نفر)</h3>
+      <div id="supplierSignWrap"></div>
+      <button class="btn small secondary" id="addSupplierSign" type="button">+ افزودن امضاکننده</button>
+    </div>
+
+    <!-- Dana signers -->
     <div class="section">
       <h3>امضاکنندگان دانا</h3>
       <div class="chips">
@@ -957,7 +1140,7 @@
     </div>
 
     <div class="actions">
-      <button class="btn secondary" id="back1">
+      <button class="btn secondary" id="back3">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M5.5 8L9.5 4V12L5.5 8Z" fill="currentColor"/>
         </svg>
@@ -978,7 +1161,7 @@
   <!-- Stage 4 -->
   <section id="stage4" class="stage hidden">
     <div class="section">
-      <h2>۳. انتخاب بندها (Noban)</h2>
+      <h2>۴. انتخاب بندها (Noban)</h2>
       <div class="progress-bar">
         <div class="progress" style="width: 60%"></div>
       </div>
@@ -986,7 +1169,7 @@
     </div>
     
     <div class="actions">
-      <button class="btn secondary" id="back3">
+      <button class="btn secondary" id="back4">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M5.5 8L9.5 4V12L5.5 8Z" fill="currentColor"/>
         </svg>
@@ -1004,7 +1187,7 @@
   <!-- Stage P -->
   <section id="stageP" class="stage hidden">
     <div class="section">
-      <h2>۴. پیش‌نمایش / دانلود</h2>
+      <h2>۵. پیش‌نمایش / دانلود</h2>
       <div class="progress-bar">
         <div class="progress" style="width: 100%"></div>
       </div>
@@ -1022,7 +1205,7 @@
     </div>
     
     <div class="actions">
-      <button class="btn secondary" id="back4">
+      <button class="btn secondary" id="back5">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M5.5 8L9.5 4V12L5.5 8Z" fill="currentColor"/>
         </svg>
@@ -1080,10 +1263,16 @@ document.querySelectorAll('.step').forEach(step => {
   });
 });
 
+// navigation between stages
+document.getElementById('go2').addEventListener('click', () => showStage('2'));
 document.getElementById('go3').addEventListener('click', () => showStage('3'));
-document.getElementById('back1').addEventListener('click', () => showStage('1'));
-document.getElementById('back3').addEventListener('click', () => showStage('3'));
-document.getElementById('back4').addEventListener('click', () => showStage('4'));
+document.getElementById('go4').addEventListener('click', () => showStage('4'));
+document.getElementById('goP').addEventListener('click', () => showStage('p'));
+// back buttons
+document.getElementById('back2').addEventListener('click', () => showStage('1'));
+document.getElementById('back3').addEventListener('click', () => showStage('2'));
+document.getElementById('back4').addEventListener('click', () => showStage('3'));
+document.getElementById('back5').addEventListener('click', () => showStage('4'));
 
 /* ---------- state ---------- */
 function $(id) { return document.getElementById(id) }
@@ -1096,10 +1285,18 @@ const state = {
     subject: '', projectName: '', manufacturerName: '', manufacturerCountry: '',
     deliveryDeadlineDays: '', leadtimeTrigger: '', allowBuyerRep: false,
     hasWarranty: false, warrantyMonths: '', fxSettlement: false, fxRateSourceLabel: '',
-    offerNumber: '', offerDate: '', hasKaveh: false, isSingleSigner: true, totalNet: 0
+    offerNumber: '', offerDate: '', hasKaveh: false, isSingleSigner: true, totalNet: 0,
+    // new metadata fields
+    deadlineType: '',
+    incoterms: '',
+    calendarType: 'gregorian',
+    issueDateJalali: '',
+    deliveryDocs: []
   },
   items: [],
   attachments: [],
+  // supplier signatories list
+  supplierSignatories: [],
   clauses: {
     partial: 'بنا بر صلاحدید و با تأیید موردی خریدار مجاز میباشد',
     delivery: 'درب انبار فروشنده در ............... به صورت ترم تحویل EX-WORK.',
@@ -1119,6 +1316,7 @@ function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
     state.items = s.items || [];
     state.attachments = s.attachments || [];
     state.clauses = Object.assign(state.clauses, s.clauses || {});
+    state.supplierSignatories = s.supplierSignatories || [];
   } catch {}
 })();
 
@@ -1131,8 +1329,8 @@ $('templateFile').addEventListener('change', async (e) => {
 
 /* ---------- step-3 bindings ---------- */
 ['poNumber', 'issueDate', 'subject', 'projectName', 'manufacturerName', 'manufacturerCountry', 
- 'deliveryDeadlineDays', 'leadtimeTrigger', 'warrantyMonths', 'fxRateSourceLabel', 
- 'offerNumber', 'offerDate'].forEach(id => {
+ 'deliveryDeadlineDays', 'leadtimeTrigger', 'warrantyMonths', 'fxRateSourceLabel',
+ 'offerNumber', 'offerDate', 'issueDateJalali', 'deadlineType', 'incoterms'].forEach(id => {
   const el = $(id); 
   if (state.meta[id]) el.value = state.meta[id];
   el.addEventListener('input', e => {
@@ -1151,20 +1349,78 @@ $('currency').addEventListener('change', e => {
 
 $('amount').value = state.meta.amount;
 $('amount').addEventListener('input', e => {
-  state.meta.amount = e.target.value;
+  // format number with comma separators
+  const raw = e.target.value.toString().replace(/,/g, '');
+  const num = raw ? parseInt(raw, 10) : 0;
+  state.meta.amount = isNaN(num) ? '' : num;
+  // update display
+  e.target.value = isNaN(num) || num === 0 ? '' : num.toLocaleString('en-US');
   computeDerived();
   save();
 });
+
+// set initial values for new select inputs
+if ($('deadlineType')) {
+  $('deadlineType').value = state.meta.deadlineType || '';
+  $('deadlineType').addEventListener('change', e => {
+    state.meta.deadlineType = e.target.value;
+    save();
+  });
+}
+if ($('incoterms')) {
+  $('incoterms').value = state.meta.incoterms || '';
+  $('incoterms').addEventListener('change', e => {
+    state.meta.incoterms = e.target.value;
+    save();
+  });
+}
+if ($('issueDateJalali')) {
+  $('issueDateJalali').value = state.meta.issueDateJalali || '';
+  $('issueDateJalali').addEventListener('input', e => {
+    state.meta.issueDateJalali = e.target.value;
+    save();
+  });
+}
+
+// calendar type toggle between Gregorian and Jalali
+if ($('calendarType')) {
+  $('calendarType').value = state.meta.calendarType || 'gregorian';
+  $('calendarType').addEventListener('change', e => {
+    state.meta.calendarType = e.target.value;
+    updateCalendarFields();
+    save();
+  });
+  // call once on load
+  updateCalendarFields();
+}
+
+function updateCalendarFields() {
+  const isJalali = state.meta.calendarType === 'jalali';
+  const greg = document.querySelector('.cal-greg');
+  const jal = document.querySelector('.cal-jalali');
+  // Hide or show date fields explicitly via inline styles
+  if (greg) greg.style.display = isJalali ? 'none' : '';
+  if (jal) jal.style.display = isJalali ? '' : 'none';
+}
 
 ['allowBuyerRep', 'hasWarranty', 'fxSettlement'].forEach(id => {
   $(id).checked = !!state.meta[id];
   $(id).addEventListener('change', e => {
     state.meta[id] = e.target.checked;
+    if (id === 'hasWarranty') updateWarrantyVisibility();
     save();
   });
 });
 
 $('warrantyMonths').value = state.meta.warrantyMonths || '';
+
+// hide warranty duration when warranty not selected
+function updateWarrantyVisibility() {
+  const row = document.getElementById('warrantyMonths')?.parentElement;
+  if (!row) return;
+  row.style.display = state.meta.hasWarranty ? '' : 'none';
+}
+updateWarrantyVisibility();
 
 /* ---------- signers ---------- */
 $('chipKaveh').classList.toggle('on', !!state.meta.hasKaveh);
@@ -1219,7 +1475,7 @@ function buildItemTable() {
 function attachItemListeners() {
   document.querySelectorAll('#itemsTable .item-inp').forEach(inp => {
     inp.addEventListener('input', e => {
-      const idx = +e.target.dataset.i, key = e.target.dataset.key;
+      const idx = +e.target.dataset.i, key = e.target.dataset.k;
       state.items[idx][key] = e.target.value;
       // update ONLY this row's total
       const row  = e.target.closest('tr');
@@ -1315,6 +1571,92 @@ $('addAttachment').addEventListener('click', () => {
   save();
 });
 renderAttachments();
+
+/* ---------- delivery docs & supplier signatories ---------- */
+const DELIVERY_DOCS = [
+  "Invoice", "Packing List", "Bill of Lading", "Insurance Policy",
+  "MTC/CoC", "Final Data Book", "Certificate of Origin", "Packing Photos"
+];
+
+function renderDeliveryDocs() {
+  const wrap = document.getElementById('deliveryDocsChips');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  // ensure custom docs appear after default options
+  const fullList = DELIVERY_DOCS.concat(state.meta.deliveryDocs.filter(x => !DELIVERY_DOCS.includes(x)));
+  fullList.forEach(doc => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    const selected = state.meta.deliveryDocs.includes(doc);
+    if (selected) chip.classList.add('selected');
+    chip.textContent = doc;
+    chip.addEventListener('click', () => {
+      const idx = state.meta.deliveryDocs.indexOf(doc);
+      if (idx > -1) state.meta.deliveryDocs.splice(idx, 1);
+      else state.meta.deliveryDocs.push(doc);
+      renderDeliveryDocs();
+      save();
+    });
+    wrap.appendChild(chip);
+  });
+}
+
+if (document.getElementById('addDeliveryDoc')) {
+  document.getElementById('addDeliveryDoc').addEventListener('click', () => {
+    const inp = document.getElementById('deliveryDocOther');
+    const v = (inp.value || '').trim();
+    if (!v) return;
+    if (!state.meta.deliveryDocs.includes(v)) {
+      state.meta.deliveryDocs.push(v);
+    }
+    inp.value = '';
+    renderDeliveryDocs();
+    save();
+  });
+}
+
+function renderSupplierSigns() {
+  const wrap = document.getElementById('supplierSignWrap');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  (state.supplierSignatories || []).forEach((s, i) => {
+    const row = document.createElement('div');
+    row.innerHTML = `
+      <input placeholder="نام" value="${s.name || ''}" data-i="${i}" data-k="name">
+      <input placeholder="سمت" value="${s.title || ''}" data-i="${i}" data-k="title">
+      <button class="btn small" data-act="del" data-i="${i}">حذف</button>
+    `;
+    row.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('input', ev => {
+        const idx = +ev.target.dataset.i;
+        const k = ev.target.dataset.k;
+        state.supplierSignatories[idx][k] = ev.target.value;
+        save();
+      });
+    });
+    row.querySelector('[data-act="del"]').addEventListener('click', ev => {
+      state.supplierSignatories.splice(+ev.target.dataset.i, 1);
+      renderSupplierSigns();
+      save();
+    });
+    wrap.appendChild(row);
+  });
+}
+
+if (document.getElementById('addSupplierSign')) {
+  document.getElementById('addSupplierSign').addEventListener('click', e => {
+    e.preventDefault();
+    if (!state.supplierSignatories) state.supplierSignatories = [];
+    if (state.supplierSignatories.length >= 3) return;
+    state.supplierSignatories.push({ name: '', title: '' });
+    renderSupplierSigns();
+    save();
+  });
+}
+
+// initialize delivery docs and supplier signatories after load
+renderDeliveryDocs();
+renderSupplierSigns();
 
 /* ---------- clauses ---------- */
 const CLAUSES_NOBAN = [
