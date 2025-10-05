@@ -2252,27 +2252,693 @@ function buildDocxData() {
     };
 }
 
-async // ====== Guards to ensure external libs are ready on slow CDNs ======
-async function waitDocxLibs(interval = 100, tries = 60) {
-  const sleep = (ms)=>new Promise(r=>setTimeout(r, ms));
-  for (let i=0; i<tries; i++) {
-    if (window.PizZip && (window.docxtemplater || window.Docxtemplater)) return;
-    await sleep(interval);
+async function composeDocxBlob() {
+  const ab = await getTemplateArrayBuffer();
+  const zip = new PizZip(ab);
+  const doc = new window.docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true
+  });
+  doc.setData(buildDocxData());
+  try {
+    doc.render();
+  } catch (e) {
+    // Build a detailed error message for template issues
+    let msg = '';
+    if (e.properties && Array.isArray(e.properties.errors)) {
+      msg = e.properties.errors.map(err => {
+        const tag = (err.properties && err.properties.tag) ? err.properties.tag : '';
+        const expl = (err.properties && err.properties.explanation) ? err.properties.explanation : (err.message || '');
+        return `${tag}: ${expl}`;
+      }).join('\n');
+    } else {
+      msg = e.message || 'خطای ناشناخته';
+    }
+    throw new Error(msg);
   }
-  throw new Error('کتابخانه‌های Docxtemplater/PizZip بارگیری نشدند.');
+  return doc.getZip().generate({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  });
 }
 
-async function waitMammoth(interval = 100, tries = 60) {
-  const sleep = (ms)=>new Promise(r=>setTimeout(r, ms));
-  for (let i=0; i<tries; i++) {
-    if (window.mammoth) return;
-    await sleep(interval);
+async function doPreview() {
+  const blob = await composeDocxBlob();
+  const arrayBuffer = await blob.arrayBuffer();
+  const { value: html } = await window.mammoth.convertToHtml({ arrayBuffer });
+  $('preview').innerHTML = html;
+}
+
+document.getElementById('downloadDocx').addEventListener('click', async () => {
+  try {
+    const btn = document.getElementById('downloadDocx');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<div class="loading"></div> در حال تولید...';
+    btn.disabled = true;
+    
+    const blob = await composeDocxBlob();
+    saveAs(blob, 'po-noban.docx');
+    
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  } catch (err) {
+    alert('ساخت Word ناموفق. مسیر/فایل الگو را بررسی کنید.');
+    console.error(err);
   }
-  throw new Error('کتابخانه Mammoth بارگیری نشد.');
+});
+
+/* ---------- export/import JSON ---------- */
+function currentPayload() { 
+  return {
+    meta: state.meta, 
+    items: state.items, 
+    attachments: state.attachments, 
+    clauses: state.clauses
+  }; 
 }
 
-function getDocxCtor() {
-  return window.docxtemplater || window.Docxtemplater;
-}
+document.getElementById('exportJson').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(currentPayload(), null, 2)], {type: 'application/json'});
+  saveAs(blob, 'noban-v55.json');
+});
 
-f
+document.getElementById('downloadJSON').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(currentPayload(), null, 2)], {type: 'application/json'});
+  saveAs(blob, 'noban-v55.json');
+});
+
+document.getElementById('importJsonBtn').addEventListener('click', () => {
+  document.getElementById('importJson').click();
+});
+
+document.getElementById('importJson').addEventListener('change', async (e) => {
+  const f = e.target.files?.[0]; 
+  if (!f) return;
+  
+  try {
+    const txt = await f.text();
+    const j = JSON.parse(txt);
+    
+    Object.assign(state.meta, j.meta || {});
+    state.items = j.items || [];
+    state.attachments = j.attachments || [];
+    state.clauses = Object.assign(state.clauses, j.clauses || {});
+    // restore supplier signatories if present in JSON
+    state.supplierSignatories = j.supplierSignatories || [];
+    
+    // reflect UI
+    // reflect UI for standard and new metadata fields
+    ['poNumber','issueDate','subject','projectName','manufacturerName','manufacturerCountry',
+     'deliveryDeadlineDays','leadtimeTrigger','warrantyMonths','fxRateSourceLabel',
+     'offerNumber','offerDate','issueDateJalali','deadlineType','incoterms','calendarType'].forEach(id => {
+      const el = $(id);
+      if (el) el.value = state.meta[id] || '';
+    });
+    // update currency selector
+    $('currency').value = state.meta.currency || 'IRR';
+    // update amount display with separators
+    $('amount').value = state.meta.amount ? Number(state.meta.amount).toLocaleString('en-US') : '';
+    // restore toggle checkboxes
+    ['allowBuyerRep','hasWarranty','fxSettlement'].forEach(id => {
+      const cb = $(id);
+      if (cb) cb.checked = !!state.meta[id];
+    });
+    // restore Kaveh chip
+    $('chipKaveh').classList.toggle('on', !!state.meta.hasKaveh);
+    // run calendar, warranty and docs/signs UI updates
+    updateCalendarFields();
+    updateWarrantyVisibility();
+    renderDeliveryDocs && renderDeliveryDocs();
+    renderSupplierSigns && renderSupplierSigns();
+    computeDerived();
+    // rebuild item table and totals after import
+    buildItemTable();
+    recalcTotals();
+    renderAttachments();
+    renderClauses();
+    save();
+    alert('وارد شد.');
+  } catch (err) {
+    alert('فایل JSON نامعتبر است.');
+  }
+});
+
+// =====================
+// Authentication, History & Notifications
+// =====================
+(function() {
+  // Helper selectors
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- number to Persian words helper (shared) ----------
+  function numToFaWords(num) {
+    // Simple converter for Persian numbers up to billions
+    const ones = ['', 'یک', 'دو', 'سه', 'چهار', 'پنج', 'شش', 'هفت', 'هشت', 'نه'];
+    const tens = ['', 'ده', 'بیست', 'سی', 'چهل', 'پنجاه', 'شصت', 'هفتاد', 'هشتاد', 'نود'];
+    const teens = ['ده', 'یازده', 'دوازده', 'سیزده', 'چهارده', 'پانزده', 'شانزده', 'هفده', 'هجده', 'نوزده'];
+    const hundreds = ['', 'صد', 'دویست', 'سیصد', 'چهارصد', 'پانصد', 'ششصد', 'هفتصد', 'هشتصد', 'نهصد'];
+    const thousands = ['', 'هزار', 'میلیون', 'میلیارد'];
+    if (!num || isNaN(num)) return '';
+    let parts = [];
+    const digits = num.toString().split('').reverse().join('');
+    const chunks = [];
+    for (let i = 0; i < digits.length; i += 3) {
+      chunks.push(digits.substr(i, 3).split('').reverse().join(''));
+    }
+    chunks.forEach((chunk, idx) => {
+      let n = parseInt(chunk, 10);
+      if (n === 0) return;
+      let section = [];
+      const c = Math.floor(n / 100);
+      const t = Math.floor((n % 100) / 10);
+      const o = n % 10;
+      if (c) section.push(hundreds[c]);
+      if (t > 1) {
+        section.push(tens[t]);
+        if (o) section.push(ones[o]);
+      } else if (t === 1) {
+        section.push(teens[o]);
+      } else if (o) {
+        section.push(ones[o]);
+      }
+      const suffix = thousands[idx] || '';
+      if (suffix) section.push(suffix);
+      parts.unshift(section.join(' و '));
+    });
+    return parts.join(' و ');
+  }
+  // Expose Persian number-to-words helper globally so other modules can reuse it
+  window.numToFaWords = numToFaWords;
+  const authModal = $('authModal');
+  const historyPage = $('historyPage');
+  const historyTable = $('historyTbody');
+  const historyEmpty = $('historyEmpty');
+  const notifBell = $('notifBell');
+  const notifCount = $('notifCount');
+  const signInBtn = $('signInBtn');
+  const signOutBtn = $('signOutBtn');
+  const userMenu = $('userMenu');
+  const userEmailSpan = $('userEmail');
+  const historyNav = $('historyNav');
+  const assignedNav = $('assignedNav');
+  const assignedPage = $('assignedPage');
+  const assignedTable = $('assignedTbody');
+  const assignedEmpty = $('assignedEmpty');
+  const authEmail = $('authEmail');
+  const authPassword = $('authPassword');
+  const authDisplayName = $('authDisplayName');
+  const signInSubmit = $('signInSubmit');
+  const signUpSubmit = $('signUpSubmit');
+  const authClose = $('authClose');
+  const authError = $('authError');
+  const saveRecordBtn = $('saveRecord');
+
+  // Update UI based on auth state
+  function updateAuthUI() {
+    const user = POWizardAPI.getCurrentUser();
+    const skipMode = sessionStorage.getItem('po_skip_auth') === '1';
+    const guestMode = document.documentElement.classList.contains('guest-mode');
+    // Determine if we should treat as authenticated (guest counts as auth for UI)
+    const isAuthed = !!user || guestMode;
+    // Update email display: show user email or 'مهمان' for guest
+    if (isAuthed) {
+      const email = user ? (user.email || (user.user && user.user.email) || '') : 'مهمان';
+      userEmailSpan.textContent = email;
+      userMenu.classList.remove('hidden');
+      signInBtn.classList.add('hidden');
+    } else {
+      userMenu.classList.add('hidden');
+      signInBtn.classList.remove('hidden');
+    }
+    // Notifications only for real signed in users (not guest)
+    if (user && !guestMode) {
+      loadNotifications();
+    } else {
+      notifCount.classList.add('hidden');
+    }
+    // Disable history and assigned navigation if not a real user (guest or skip or unauth)
+    const disableNav = !user || guestMode || skipMode;
+    if (historyNav) historyNav.classList.toggle('disabled', disableNav);
+    if (assignedNav) assignedNav.classList.toggle('disabled', disableNav);
+  }
+
+  // Render history list
+  async function renderHistory() {
+    if (historyTable) historyTable.innerHTML = '';
+    const records = await POWizardAPI.fetchMyRecords();
+    if (!records || records.length === 0) {
+      if (historyEmpty) historyEmpty.classList.remove('hidden');
+      return;
+    }
+    if (historyEmpty) historyEmpty.classList.add('hidden');
+    records.forEach(rec => {
+      const tr = document.createElement('tr');
+      const updated = rec.updated_at ? new Date(rec.updated_at).toLocaleDateString('fa-IR') : '';
+      tr.innerHTML = `<td>${rec.title || ''}</td>` +
+                     `<td>${rec.po_number || ''}</td>` +
+                     `<td>${statusLabel(rec.status)}</td>` +
+                     `<td>${updated}</td>` +
+                     `<td class="actions">` +
+                     `<button class="btn small primary" data-act="open" data-id="${rec.id}">باز کردن</button>` +
+                     `<button class="btn small ok" data-act="download" data-id="${rec.id}">دانلود</button>` +
+                     `<button class="btn small warn" data-act="review" data-id="${rec.id}">ارسال بررسی</button>` +
+                     `</td>`;
+      historyTable.appendChild(tr);
+    });
+    // attach events
+    historyTable.querySelectorAll('button[data-act="open"]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const id = btn.dataset.id;
+        const recs = await POWizardAPI.fetchMyRecords();
+        const record = recs.find(r => r.id === id);
+        if (!record) return;
+        const payload = record.meta_json;
+        if (!payload) return;
+        Object.assign(state.meta, payload.meta || {});
+        state.items = payload.items || [];
+        state.attachments = payload.attachments || [];
+        state.clauses = Object.assign(state.clauses, payload.clauses || {});
+        // reflect UI
+        ['poNumber','issueDate','subject','projectName','manufacturerName','manufacturerCountry','deliveryDeadlineDays','leadtimeTrigger','warrantyMonths','fxRateSourceLabel','offerNumber','offerDate'].forEach(id2 => { $(id2).value = state.meta[id2] || ''; });
+        $('currency').value = state.meta.currency || 'IRR';
+        $('amount').value = state.meta.amount || '';
+        ['allowBuyerRep','hasWarranty','fxSettlement'].forEach(id2 => { $(id2).checked = !!state.meta[id2]; });
+        $('chipKaveh').classList.toggle('on', !!state.meta.hasKaveh);
+        computeDerived();
+        buildItemTable(); recalcTotals(); renderAttachments(); renderClauses(); save();
+        // close history and show wizard
+        historyPage.classList.add('hidden');
+        document.querySelector('main.container').classList.remove('hidden');
+        document.querySelector('.stepper').classList.remove('hidden');
+      });
+    });
+    historyTable.querySelectorAll('button[data-act="download"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        try {
+          const blob = await POWizardAPI.downloadFile(id);
+          saveAs(blob, `po-${id}.docx`);
+        } catch (err) {
+          alert('دانلود نشد');
+          console.error(err);
+        }
+      });
+    });
+    historyTable.querySelectorAll('button[data-act="review"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const email = prompt('ایمیل بررسی‌کننده را وارد کنید:');
+        if (!email) return;
+        try {
+          await POWizardAPI.addAssignee(id, email.trim());
+          alert('درخواست بررسی ارسال شد.');
+          await renderHistory();
+        } catch (err) {
+          alert(err.message || 'خطا در ارسال');
+        }
+      });
+    });
+  }
+
+  // Render records assigned to current user
+  async function renderAssigned() {
+    if (assignedTable) assignedTable.innerHTML = '';
+    const records = await POWizardAPI.fetchAssignedRecords();
+    if (!records || records.length === 0) {
+      if (assignedEmpty) assignedEmpty.classList.remove('hidden');
+      return;
+    }
+    if (assignedEmpty) assignedEmpty.classList.add('hidden');
+    records.forEach(rec => {
+      const tr = document.createElement('tr');
+      const updated = rec.updated_at ? new Date(rec.updated_at).toLocaleDateString('fa-IR') : '';
+      tr.innerHTML = `<td>${rec.title || ''}</td>` +
+                     `<td>${rec.po_number || ''}</td>` +
+                     `<td>${statusLabel(rec.status)}</td>` +
+                     `<td>${updated}</td>` +
+                     `<td class="actions">` +
+                     `<button class="btn small primary" data-act="open" data-id="${rec.id}">باز کردن</button>` +
+                     `<button class="btn small ok" data-act="approve" data-id="${rec.id}">تایید</button>` +
+                     `<button class="btn small warn" data-act="request" data-id="${rec.id}">نیاز به اصلاح</button>` +
+                     `</td>`;
+      assignedTable.appendChild(tr);
+    });
+    // attach handlers
+    assignedTable.querySelectorAll('button[data-act="open"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const recs = await POWizardAPI.fetchAssignedRecords();
+        const record = recs.find(r => r.id === id);
+        if (!record) return;
+        const payload = record.meta_json;
+        if (!payload) return;
+        // populate state
+        Object.assign(state.meta, payload.meta || {});
+        state.items = payload.items || [];
+        state.attachments = payload.attachments || [];
+        state.clauses = Object.assign(state.clauses, payload.clauses || {});
+        // reflect UI
+        ['poNumber','issueDate','subject','projectName','manufacturerName','manufacturerCountry','deliveryDeadlineDays','leadtimeTrigger','warrantyMonths','fxRateSourceLabel','offerNumber','offerDate'].forEach(id2 => { $(id2).value = state.meta[id2] || ''; });
+        $('currency').value = state.meta.currency || 'IRR';
+        $('amount').value = state.meta.amount || '';
+        ['allowBuyerRep','hasWarranty','fxSettlement'].forEach(id2 => { $(id2).checked = !!state.meta[id2]; });
+        $('chipKaveh').classList.toggle('on', !!state.meta.hasKaveh);
+        computeDerived();
+        buildItemTable(); recalcTotals(); renderAttachments(); renderClauses(); save();
+        // hide assigned page and show wizard
+        assignedPage.classList.add('hidden');
+        document.querySelector('main.container').classList.remove('hidden');
+        document.querySelector('.stepper').classList.remove('hidden');
+      });
+    });
+    assignedTable.querySelectorAll('button[data-act="approve"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        try {
+          await POWizardAPI.updateRecordStatus(id, 'approved');
+          alert('تایید شد');
+          await renderAssigned();
+        } catch (err) {
+          alert(err.message || 'خطا');
+        }
+      });
+    });
+    assignedTable.querySelectorAll('button[data-act="request"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const note = prompt('دلیل نیاز به اصلاح را وارد کنید (اختیاری):', '');
+        try {
+          await POWizardAPI.updateRecordStatus(id, 'changes_requested');
+          alert('وضعیت به نیاز به اصلاح تغییر یافت');
+          await renderAssigned();
+        } catch (err) {
+          alert(err.message || 'خطا');
+        }
+      });
+    });
+  }
+
+  function statusLabel(status) {
+    const map = { pending: 'در انتظار', in_review: 'در حال بررسی', changes_requested: 'نیاز به اصلاح', approved: 'تایید شده', finalized: 'نهایی', canceled: 'لغو شده' };
+    return map[status] || status || '';
+  }
+
+  async function loadNotifications() {
+    try {
+      const list = await POWizardAPI.fetchNotifications();
+      const unread = list.filter(n => !n.read).length;
+      if (unread > 0) {
+        notifCount.textContent = unread;
+        notifCount.classList.remove('hidden');
+      } else {
+        notifCount.classList.add('hidden');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  // Click handlers
+  if (signInBtn) {
+    signInBtn.addEventListener('click', () => {
+      // reset form
+      authEmail.value = '';
+      authPassword.value = '';
+      authDisplayName.value = '';
+      authDisplayName.classList.add('hidden');
+      authError.textContent = '';
+      authModal.classList.remove('hidden');
+    });
+  }
+  if (authClose) authClose.addEventListener('click', () => { authModal.classList.add('hidden'); });
+
+  if (signOutBtn) signOutBtn.addEventListener('click', async () => { await POWizardAPI.signOut(); });
+
+  // Show display name input when clicking sign up
+  if (signUpSubmit) signUpSubmit.addEventListener('click', async () => {
+    const email = authEmail.value.trim();
+    const pass = authPassword.value;
+    const name = authDisplayName.value.trim() || email;
+    const { error } = await POWizardAPI.signUp({ email, password: pass, displayName: name });
+    if (error) {
+      authError.textContent = error.message || 'خطا در ثبت‌نام';
+    } else {
+      authError.textContent = '';
+      authModal.classList.add('hidden');
+    }
+  });
+
+  if (signInSubmit) signInSubmit.addEventListener('click', async () => {
+    const email = authEmail.value.trim();
+    const pass = authPassword.value;
+    const { error } = await POWizardAPI.signIn({ email, password: pass });
+    if (error) {
+      authError.textContent = error.message || 'خطا در ورود';
+    } else {
+      authError.textContent = '';
+      authModal.classList.add('hidden');
+    }
+  });
+
+  // --- Guest and Skip login handlers ---
+  const guestBtn = $('guestBtn');
+  if (guestBtn) {
+    guestBtn.addEventListener('click', async () => {
+      // Remove skip auth flag
+      sessionStorage.removeItem('po_skip_auth');
+      // Persist guest mode to localStorage for auto-login on reload
+      localStorage.setItem('po_guest_mode', '1');
+      try {
+        const res = await POWizardAPI.signIn({ email: 'guest', password: 'guest' });
+        if (res && res.error) {
+          await POWizardAPI.signUp({ email: 'guest', password: 'guest', displayName: 'مهمان' });
+          await POWizardAPI.signIn({ email: 'guest', password: 'guest' });
+        }
+        document.documentElement.classList.add('guest-mode');
+        if (typeof window.closeAuthModal === 'function') window.closeAuthModal();
+        updateAuthUI();
+      } catch (e) {
+        console.error('Guest sign-in failed', e);
+      }
+    });
+  }
+  const skipBtn = $('skipAuthBtn');
+  if (skipBtn) {
+    skipBtn.addEventListener('click', () => {
+      // Set skip auth flag so modal won't open automatically
+      sessionStorage.setItem('po_skip_auth', '1');
+      // Clear guest flag
+      localStorage.removeItem('po_guest_mode');
+      document.documentElement.classList.add('skip-mode');
+      if (typeof window.closeAuthModal === 'function') window.closeAuthModal();
+      updateAuthUI();
+    });
+  }
+
+  if (historyNav) {
+    historyNav.addEventListener('click', async () => {
+      const container = document.querySelector('main.container');
+      const stepper = document.querySelector('.stepper');
+      if (historyPage.classList.contains('hidden')) {
+        if (container) container.classList.add('hidden');
+        if (stepper) stepper.classList.add('hidden');
+        await renderHistory();
+        historyPage.classList.remove('hidden');
+      } else {
+        historyPage.classList.add('hidden');
+        if (container) container.classList.remove('hidden');
+        if (stepper) stepper.classList.remove('hidden');
+      }
+    });
+  }
+
+  if (assignedNav) {
+    assignedNav.addEventListener('click', async () => {
+      const container = document.querySelector('main.container');
+      const stepper = document.querySelector('.stepper');
+      if (assignedPage.classList.contains('hidden')) {
+        if (container) container.classList.add('hidden');
+        if (stepper) stepper.classList.add('hidden');
+        // load assigned records
+        await renderAssigned();
+        assignedPage.classList.remove('hidden');
+        // hide history page if open
+        if (historyPage) historyPage.classList.add('hidden');
+      } else {
+        assignedPage.classList.add('hidden');
+        if (container) container.classList.remove('hidden');
+        if (stepper) stepper.classList.remove('hidden');
+      }
+    });
+  }
+
+  if (notifBell) notifBell.addEventListener('click', async () => {
+    const list = await POWizardAPI.fetchNotifications();
+    if (!list || list.length === 0) {
+      alert('هیچ اعلان جدیدی ندارید.');
+      return;
+    }
+    let msg = '';
+    list.forEach(n => {
+      if (!n.read) {
+        msg += (n.type === 'review_request' ? 'درخواست بررسی' : 'پیام') + `: ${n.po_id}` + '\n';
+      }
+    });
+    if (msg) alert(msg);
+    // mark all as read
+    for (const n of list) {
+      if (!n.read) await POWizardAPI.markNotificationRead(n.id);
+    }
+    notifCount.classList.add('hidden');
+  });
+
+  if (saveRecordBtn) {
+    saveRecordBtn.addEventListener('click', async () => {
+      const user = POWizardAPI.getCurrentUser();
+      if (!user) {
+        alert('برای ذخیره ابتدا وارد شوید.');
+        return;
+      }
+      try {
+        // generate docx blob from current state
+        const blob = await composeDocxBlob();
+        const data = currentPayload();
+        await POWizardAPI.savePoRecord({ meta: data.meta, items: data.items, attachments: data.attachments, clauses: data.clauses, fileBlob: blob });
+        alert('سفارش ذخیره شد.');
+      } catch (err) {
+        console.error(err);
+        alert('خطا در ذخیره سفارش.');
+      }
+    });
+  }
+
+  // ----- Stage2 upload inputs: push placeholder attachments -----
+  ['uploadMainDoc','uploadEvalDoc','uploadCommissionDoc','uploadVendorDoc','uploadAdditionalDocs'].forEach(fid => {
+    const inp = $(fid);
+    if (inp) {
+      inp.addEventListener('change', (ev) => {
+        const files = Array.from(ev.target.files || []);
+        files.forEach(f => {
+          state.attachments.push({ title: f.name, number: '', date: '' });
+        });
+        if (typeof renderAttachments === 'function') renderAttachments();
+        save();
+      });
+    }
+  });
+
+      // Subscribe to auth state changes
+      POWizardAPI.onAuthStateChange(updateAuthUI);
+
+      // Initialise API and apply guest/skip logic on load
+      (async () => {
+        await POWizardAPI.init();
+        let user = POWizardAPI.getCurrentUser();
+        // Determine skip or guest flags from storage or URL
+        const params = new URLSearchParams(window.location.search);
+        const hash = window.location.hash || '';
+        const skipFlag = sessionStorage.getItem('po_skip_auth') === '1';
+        const guestFlag = (params.get('guest') === '1') || hash.includes('guest') || localStorage.getItem('po_guest_mode') === '1';
+        // If user is not signed in
+        if (!user) {
+          if (guestFlag && window.GUEST_MODE) {
+            // attempt to sign in as guest; if fails, sign up then sign in
+            try {
+              let res = await POWizardAPI.signIn({ email: 'guest', password: 'guest' });
+              if (res && res.error) {
+                await POWizardAPI.signUp({ email: 'guest', password: 'guest', displayName: 'مهمان' });
+                await POWizardAPI.signIn({ email: 'guest', password: 'guest' });
+              }
+              document.documentElement.classList.add('guest-mode');
+              // Hide auth modal if available
+              if (typeof window.closeAuthModal === 'function') window.closeAuthModal();
+            } catch (e) {
+              console.warn('Auto guest sign-in failed:', e);
+            }
+          } else if (skipFlag) {
+            // Skip auth: mark skip mode and hide modal
+            document.documentElement.classList.add('skip-mode');
+            if (typeof window.closeAuthModal === 'function') window.closeAuthModal();
+          }
+        } else {
+          // Already signed in
+          if (user.email === 'guest') {
+            document.documentElement.classList.add('guest-mode');
+          }
+          // hide modal for signed in user
+          if (typeof window.closeAuthModal === 'function') window.closeAuthModal();
+        }
+        updateAuthUI();
+      })();
+})();
+</script>
+
+<!-- ===== Injected: Safe amount init & Wizard Navigation Guard ===== -->
+<script>
+(function(){
+  // Safe init for مبلغ بدون VAT
+  var el = document.getElementById('amount');
+  if (el) {
+    function toWordsFa(n){
+      try { return (typeof window.numToFaWords === 'function') ? window.numToFaWords(n) : ''; } catch(e){ return ''; }
+    }
+    try {
+      var amt = (window.state && state.meta && state.meta.amount) ? Number(state.meta.amount) : 0;
+      el.value = amt ? Number(amt).toLocaleString('en-US') : '';
+    } catch (e) { el.value = ''; }
+    el.addEventListener('keydown', function(e){
+      var allow = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab','Home','Home','End'];
+      if (allow.indexOf(e.key) !== -1) return;
+      if (!/^\d$/.test(e.key)) e.preventDefault();
+    });
+    el.addEventListener('input', function(e){
+      var raw = String(e.target.value || '').replace(/,/g,'');
+      var num = raw ? parseInt(raw,10) : 0;
+      try {
+        window.state = window.state || {};
+        state.meta = state.meta || {};
+        state.meta.amount = Number.isFinite(num) ? num : 0;
+        state.meta.amountWords = (state.meta.amount > 0) ? toWordsFa(state.meta.amount) : '';
+      } catch(_) {}
+      e.target.value = (Number.isFinite(num) && num>0) ? num.toLocaleString('en-US') : '';
+    });
+  }
+
+  // Wizard Navigation Guard
+  function showStep(idx){
+    var steps = document.querySelectorAll('.step');
+    if (!steps.length) return;
+    steps.forEach ? steps.forEach(function(el,i){ el.classList.toggle('hidden', i !== (idx-1)); })
+                  : Array.prototype.forEach.call(steps, function(el,i){ el.classList.toggle('hidden', i !== (idx-1)); });
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(_) {}
+  }
+
+  document.addEventListener('click', function(ev){
+    var btn = ev.target.closest ? ev.target.closest('[data-go-step], #next1, #nextBtn, .btn-next, .btn-next-1, .nextBtn')
+                                : null;
+    if (!btn) return;
+    ev.preventDefault();
+
+    var targetAttr = btn.getAttribute('data-go-step');
+    var target = targetAttr ? parseInt(targetAttr, 10) : NaN;
+    if (!target || isNaN(target)) {
+      var steps = Array.prototype.slice.call(document.querySelectorAll('.step'));
+      var curIndex = steps.findIndex ? steps.findIndex(function(el){ return !el.classList.contains('hidden'); })
+                                     : (function(){ for (var i=0;i<steps.length;i++){ if (!steps[i].classList.contains('hidden')) return i; } return -1; })();
+      target = curIndex >= 0 ? Math.min(curIndex + 2, steps.length) : 2;
+    }
+
+    try {
+      var validateIdx = btn.getAttribute('data-validate') || String(target-1);
+      var fn = window['validateStage' + validateIdx];
+      if (typeof fn === 'function' && fn() === false) return;
+    } catch(_) {}
+
+    if (typeof window.goStep === 'function') window.goStep(target);
+    else showStep(target);
+  }, true);
+})();
+</script>
+
+</body>
+              </html>
