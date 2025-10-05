@@ -87,19 +87,37 @@
 
   /** Sign in an existing user. Returns { data, error } */
   async function signIn({ email, password }) {
+    // Always handle the built-in guest account before delegating to Supabase.
+    // If credentials are guest/guest, ensure a local guest user exists and return it.
+    if (email === 'guest' && password === 'guest') {
+      // Use the local storage user list regardless of Supabase presence.
+      let users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+      let guestUser = users.find(u => u.email === 'guest') || null;
+      if (!guestUser) {
+        const id = uuidv4();
+        guestUser = { id, email: 'guest', password: 'guest', displayName: 'Guest' };
+        users.push(guestUser);
+      } else {
+        // Ensure password is set to 'guest'
+        guestUser.password = 'guest';
+      }
+      // Persist updated users list
+      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      // Set current user and notify listeners
+      currentUser = guestUser;
+      sessionStorage.setItem('po_current_uid', guestUser.id);
+      authListeners.forEach(fn => fn(currentUser));
+      return { data: guestUser, error: null };
+    }
+
+    // If Supabase is configured, use it for all non-guest logins.
     if (supa) {
       return await supa.auth.signInWithPassword({ email, password });
     }
+
     // Local auth fallback: look up in localStorage
-    let users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    let user = users.find(u => u.email === email && u.password === password);
-    // If user not found and credentials match the special guest account, auto-create it
-    if (!user && email === 'guest' && password === 'guest') {
-      const id = uuidv4();
-      user = { id, email: 'guest', password: 'guest', displayName: 'Guest' };
-      users.push(user);
-      localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    }
+    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+    const user = users.find(u => u.email === email && u.password === password);
     if (!user) {
       return { error: { message: 'کاربر یافت نشد یا رمز نادرست است.' } };
     }
@@ -138,7 +156,7 @@
     if (!currentUser) throw new Error('باید وارد شوید.');
     const record = {
       id: uuidv4(),
-      owner_uid: currentUser.id || currentUser.id || currentUser.user?.id,
+      owner_uid: currentUser?.id || currentUser?.user?.id,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       status: 'pending',

@@ -35,6 +35,14 @@
     --shadow-lg: 0 10px 25px -5px rgba(0,0,0,.1);
     --font-fa: "Vazirmatn", Tahoma, Arial, sans-serif;
     --transition: all 0.2s ease;
+    /* Guest/Skip modes kill-switches */
+    /* hide auth modal completely when guest or skip mode is active */
+    html.guest-mode #authModal,
+    html.skip-mode #authModal { display: none !important; }
+    /* hide sign-in button only in guest mode */
+    html.guest-mode #signInBtn { display: none !important; }
+    /* disable pointer events for disabled link buttons */
+    .btn.link.disabled { opacity: .45; pointer-events: none; }
   }
   
   body.dark {
@@ -1119,7 +1127,8 @@
         </div>
         <div class="field three">
           <label>مبلغ بدون VAT</label>
-          <input id="amount" type="number" min="0" step="1" placeholder="0">
+          <!-- Use text input so we can display comma separators while storing numeric value in state -->
+          <input id="amount" type="text" placeholder="0">
         </div>
 
         <div class="field full">
@@ -1408,45 +1417,46 @@
       <button id="signUpSubmit" class="btn secondary">ثبت‌نام</button>
       <button id="authClose" class="btn">بستن</button>
     </div>
+    <!-- Additional auth actions: guest login and skip auth -->
+    <div class="row mt-8">
+      <button id="guestBtn" class="btn secondary">ادامه به صورت مهمان</button>
+      <button id="skipAuthBtn" class="btn secondary">فعلاً رد شو</button>
+    </div>
     <p id="authError" class="error"></p>
   </div>
 </div>
 
+<!-- Guard to ensure auth modal can always be closed and helpers exposed -->
 <script>
-  (function() {
+  (function () {
+    // Enable guest mode globally (can be toggled via backend configuration)
+    window.GUEST_MODE = true;
     const authModal = document.getElementById('authModal');
-    if (!authModal) return;
-
-    function closeAuthModal() {
-      authModal.classList.add('hidden');
+    // Shared helper to close auth modal
+    window.closeAuthModal = function () {
+      if (authModal) authModal.classList.add('hidden');
+    };
+    // Always wire the close button even if main script errors
+    const authCloseBtn = document.getElementById('authClose');
+    if (authModal && authCloseBtn) {
+      authCloseBtn.addEventListener('click', window.closeAuthModal);
     }
-
-    function bindAuthClose() {
-      const authClose = document.getElementById('authClose');
-      if (!authClose) return;
-      authClose.removeEventListener('click', closeAuthModal);
-      authClose.addEventListener('click', closeAuthModal);
+    // Hide modal on backdrop click
+    if (authModal) {
+      authModal.addEventListener('click', (ev) => {
+        if (ev.target === authModal) {
+          window.closeAuthModal();
+        }
+      });
     }
-
-    window.closeAuthModal = closeAuthModal;
-    window.bindAuthClose = bindAuthClose;
-
-    bindAuthClose();
-
-    authModal.addEventListener('click', (event) => {
-      if (event.target === authModal) {
-        closeAuthModal();
-      }
-    });
-
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && !authModal.classList.contains('hidden')) {
-        closeAuthModal();
+    // Close modal on Escape key
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && authModal && !authModal.classList.contains('hidden')) {
+        window.closeAuthModal();
       }
     });
   })();
 </script>
-
 <!-- History Page -->
 <section id="historyPage" class="hidden">
   <div class="section">
@@ -1606,16 +1616,20 @@ $('currency').addEventListener('change', e => {
   save();
 });
 
-$('amount').value = state.meta.amount;
+// display initial amount with comma separators if present
+$('amount').value = state.meta.amount ? Number(state.meta.amount).toLocaleString('en-US') : '';
 $('amount').addEventListener('input', e => {
-  // format number with comma separators
+  // normalize raw string by removing commas and non-digits
   const raw = e.target.value.toString().replace(/,/g, '');
-  const num = raw ? parseInt(raw, 10) : 0;
-  state.meta.amount = isNaN(num) ? '' : num;
-  // compute Persian words for amount
-  state.meta.amountWords = (!isNaN(num) && num > 0) ? numToFaWords(num) : '';
-  // update display
-  e.target.value = isNaN(num) || num === 0 ? '' : num.toLocaleString('en-US');
+  // keep only digits (ignore other keys like arrows/backspace)
+  const digits = raw.replace(/\D/g, '');
+  const num = digits ? parseInt(digits, 10) : 0;
+  // store numeric value (empty string if zero)
+  state.meta.amount = (!isNaN(num) && num > 0) ? num : '';
+  // update amount words using global helper if available
+  state.meta.amountWords = (!isNaN(num) && num > 0 && window.numToFaWords) ? window.numToFaWords(num) : '';
+  // update displayed value with comma separators or clear if zero
+  e.target.value = (!isNaN(num) && num > 0) ? num.toLocaleString('en-US') : '';
   computeDerived();
   save();
 });
@@ -1991,7 +2005,8 @@ function renderClauses() {
 /* ---------- validation ---------- */
 function validateStage3() {
   const m = state.meta, errs = [];
-  if (!m.issueDate) errs.push('تاریخ صدور');
+  // require issueDate (Gregorian) unless calendar is jalali and issueDateJalali provided
+  if (!m.issueDate && !(m.calendarType === 'jalali' && m.issueDateJalali)) errs.push('تاریخ صدور');
   if (!(m.subject || '').trim()) errs.push('موضوع');
   if (!(m.projectName || '').trim()) errs.push('پروژه');
   if (!(Number(m.amount) > 0)) errs.push('مبلغ');
@@ -2106,10 +2121,13 @@ function buildDocxData() {
       return parts.join(' و ');
     }
     const amountNumber = Number(m.amount || 0);
-    const amountWords = m.amountWords || (amountNumber ? numberToWordsFa(amountNumber) : '');
+    // Use global converter for amount words to avoid duplicate implementations
+    const amountWords = m.amountWords || (amountNumber ? (window.numToFaWords ? window.numToFaWords(amountNumber) : '') : '');
     const fxSettlementText = m.fxSettlement
       ? `تمامی پرداخت‌های قرارداد به صورت ریالی، براساس نرخ فروش اسکناسِ اعلامی در ${m.fxRateSourceLabel || ''} در روزِ کاریِ پیش از روزِ پرداخت انجام خواهد پذیرفت.`
       : 'تمامی پرداخت‌های قرارداد به صورت ریالی انجام خواهد شد.';
+    // Compute issue date output based on calendar type
+    const issueDateOut = (m.calendarType === 'jalali' && m.issueDateJalali) ? m.issueDateJalali : (m.issueDate || '');
     return {
       poNumber: m.poNumber || '',
       issueDate: m.issueDate || '',
@@ -2151,6 +2169,15 @@ function buildDocxData() {
       term: state.clauses.term,
       hasKaveh: !!m.hasKaveh,
       isSingleSigner: !!m.isSingleSigner
+      ,
+      // Additional fields for enhanced template
+      deadlineType: m.deadlineType || '',
+      incoterms: m.incoterms || '',
+      calendarType: m.calendarType || 'gregorian',
+      issueDateJalali: m.issueDateJalali || '',
+      issueDateOut,
+      deliveryDocs: (state.meta.deliveryDocs || m.deliveryDocs || []),
+      supplierSignatories: (state.supplierSignatories || [])
     };
 }
 
@@ -2162,7 +2189,22 @@ async function composeDocxBlob() {
     linebreaks: true
   });
   doc.setData(buildDocxData());
-  doc.render();
+  try {
+    doc.render();
+  } catch (e) {
+    // Build a detailed error message for template issues
+    let msg = '';
+    if (e.properties && Array.isArray(e.properties.errors)) {
+      msg = e.properties.errors.map(err => {
+        const tag = (err.properties && err.properties.tag) ? err.properties.tag : '';
+        const expl = (err.properties && err.properties.explanation) ? err.properties.explanation : (err.message || '');
+        return `${tag}: ${expl}`;
+      }).join('\n');
+    } else {
+      msg = e.message || 'خطای ناشناخته';
+    }
+    throw new Error(msg);
+  }
   return doc.getZip().generate({
     type: 'blob',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
@@ -2230,23 +2272,33 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
     state.items = j.items || [];
     state.attachments = j.attachments || [];
     state.clauses = Object.assign(state.clauses, j.clauses || {});
+    // restore supplier signatories if present in JSON
+    state.supplierSignatories = j.supplierSignatories || [];
     
     // reflect UI
-    ['poNumber', 'issueDate', 'subject', 'projectName', 'manufacturerName', 'manufacturerCountry', 
-     'deliveryDeadlineDays', 'leadtimeTrigger', 'warrantyMonths', 'fxRateSourceLabel', 
-     'offerNumber', 'offerDate'].forEach(id => {
-      $(id).value = state.meta[id] || '';
+    // reflect UI for standard and new metadata fields
+    ['poNumber','issueDate','subject','projectName','manufacturerName','manufacturerCountry',
+     'deliveryDeadlineDays','leadtimeTrigger','warrantyMonths','fxRateSourceLabel',
+     'offerNumber','offerDate','issueDateJalali','deadlineType','incoterms','calendarType'].forEach(id => {
+      const el = $(id);
+      if (el) el.value = state.meta[id] || '';
     });
-    
+    // update currency selector
     $('currency').value = state.meta.currency || 'IRR';
-    $('amount').value = state.meta.amount || '';
-    
-    ['allowBuyerRep', 'hasWarranty', 'fxSettlement'].forEach(id => {
-      $(id).checked = !!state.meta[id];
+    // update amount display with separators
+    $('amount').value = state.meta.amount ? Number(state.meta.amount).toLocaleString('en-US') : '';
+    // restore toggle checkboxes
+    ['allowBuyerRep','hasWarranty','fxSettlement'].forEach(id => {
+      const cb = $(id);
+      if (cb) cb.checked = !!state.meta[id];
     });
-    
+    // restore Kaveh chip
     $('chipKaveh').classList.toggle('on', !!state.meta.hasKaveh);
-    
+    // run calendar, warranty and docs/signs UI updates
+    updateCalendarFields();
+    updateWarrantyVisibility();
+    renderDeliveryDocs && renderDeliveryDocs();
+    renderSupplierSigns && renderSupplierSigns();
     computeDerived();
     // rebuild item table and totals after import
     buildItemTable();
@@ -2254,7 +2306,6 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
     renderAttachments();
     renderClauses();
     save();
-    
     alert('وارد شد.');
   } catch (err) {
     alert('فایل JSON نامعتبر است.');
@@ -2305,6 +2356,8 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
     });
     return parts.join(' و ');
   }
+  // Expose Persian number-to-words helper globally so other modules can reuse it
+  window.numToFaWords = numToFaWords;
   const authModal = $('authModal');
   const historyPage = $('historyPage');
   const historyTable = $('historyTbody');
@@ -2332,17 +2385,30 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
   // Update UI based on auth state
   function updateAuthUI() {
     const user = POWizardAPI.getCurrentUser();
-    if (user) {
-      const email = user.email || (user.user && user.user.email) || '';
+    const skipMode = sessionStorage.getItem('po_skip_auth') === '1';
+    const guestMode = document.documentElement.classList.contains('guest-mode');
+    // Determine if we should treat as authenticated (guest counts as auth for UI)
+    const isAuthed = !!user || guestMode;
+    // Update email display: show user email or 'مهمان' for guest
+    if (isAuthed) {
+      const email = user ? (user.email || (user.user && user.user.email) || '') : 'مهمان';
       userEmailSpan.textContent = email;
       userMenu.classList.remove('hidden');
       signInBtn.classList.add('hidden');
-      loadNotifications();
     } else {
       userMenu.classList.add('hidden');
       signInBtn.classList.remove('hidden');
+    }
+    // Notifications only for real signed in users (not guest)
+    if (user && !guestMode) {
+      loadNotifications();
+    } else {
       notifCount.classList.add('hidden');
     }
+    // Disable history and assigned navigation if not a real user (guest or skip or unauth)
+    const disableNav = !user || guestMode || skipMode;
+    if (historyNav) historyNav.classList.toggle('disabled', disableNav);
+    if (assignedNav) assignedNav.classList.toggle('disabled', disableNav);
   }
 
   // Render history list
@@ -2533,17 +2599,7 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
       authModal.classList.remove('hidden');
     });
   }
-  if (typeof window.bindAuthClose === 'function') {
-    window.bindAuthClose();
-  } else if (authClose) {
-    authClose.addEventListener('click', () => {
-      if (typeof window.closeAuthModal === 'function') {
-        window.closeAuthModal();
-      } else {
-        authModal.classList.add('hidden');
-      }
-    });
-  }
+  if (authClose) authClose.addEventListener('click', () => { authModal.classList.add('hidden'); });
 
   if (signOutBtn) signOutBtn.addEventListener('click', async () => { await POWizardAPI.signOut(); });
 
@@ -2557,11 +2613,7 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
       authError.textContent = error.message || 'خطا در ثبت‌نام';
     } else {
       authError.textContent = '';
-      if (typeof window.closeAuthModal === 'function') {
-        window.closeAuthModal();
-      } else {
-        authModal.classList.add('hidden');
-      }
+      authModal.classList.add('hidden');
     }
   });
 
@@ -2573,13 +2625,44 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
       authError.textContent = error.message || 'خطا در ورود';
     } else {
       authError.textContent = '';
-      if (typeof window.closeAuthModal === 'function') {
-        window.closeAuthModal();
-      } else {
-        authModal.classList.add('hidden');
-      }
+      authModal.classList.add('hidden');
     }
   });
+
+  // --- Guest and Skip login handlers ---
+  const guestBtn = $('guestBtn');
+  if (guestBtn) {
+    guestBtn.addEventListener('click', async () => {
+      // Remove skip auth flag
+      sessionStorage.removeItem('po_skip_auth');
+      // Persist guest mode to localStorage for auto-login on reload
+      localStorage.setItem('po_guest_mode', '1');
+      try {
+        const res = await POWizardAPI.signIn({ email: 'guest', password: 'guest' });
+        if (res && res.error) {
+          await POWizardAPI.signUp({ email: 'guest', password: 'guest', displayName: 'مهمان' });
+          await POWizardAPI.signIn({ email: 'guest', password: 'guest' });
+        }
+        document.documentElement.classList.add('guest-mode');
+        if (typeof window.closeAuthModal === 'function') window.closeAuthModal();
+        updateAuthUI();
+      } catch (e) {
+        console.error('Guest sign-in failed', e);
+      }
+    });
+  }
+  const skipBtn = $('skipAuthBtn');
+  if (skipBtn) {
+    skipBtn.addEventListener('click', () => {
+      // Set skip auth flag so modal won't open automatically
+      sessionStorage.setItem('po_skip_auth', '1');
+      // Clear guest flag
+      localStorage.removeItem('po_guest_mode');
+      document.documentElement.classList.add('skip-mode');
+      if (typeof window.closeAuthModal === 'function') window.closeAuthModal();
+      updateAuthUI();
+    });
+  }
 
   if (historyNav) {
     historyNav.addEventListener('click', async () => {
@@ -2658,14 +2741,64 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
     });
   }
 
-  // Subscribe to auth state changes
-  POWizardAPI.onAuthStateChange(updateAuthUI);
+  // ----- Stage2 upload inputs: push placeholder attachments -----
+  ['uploadMainDoc','uploadEvalDoc','uploadCommissionDoc','uploadVendorDoc','uploadAdditionalDocs'].forEach(fid => {
+    const inp = $(fid);
+    if (inp) {
+      inp.addEventListener('change', (ev) => {
+        const files = Array.from(ev.target.files || []);
+        files.forEach(f => {
+          state.attachments.push({ title: f.name, number: '', date: '' });
+        });
+        if (typeof renderAttachments === 'function') renderAttachments();
+        save();
+      });
+    }
+  });
 
-  // Initialise API and update UI
-  (async () => {
-    await POWizardAPI.init();
-    updateAuthUI();
-  })();
+      // Subscribe to auth state changes
+      POWizardAPI.onAuthStateChange(updateAuthUI);
+
+      // Initialise API and apply guest/skip logic on load
+      (async () => {
+        await POWizardAPI.init();
+        let user = POWizardAPI.getCurrentUser();
+        // Determine skip or guest flags from storage or URL
+        const params = new URLSearchParams(window.location.search);
+        const hash = window.location.hash || '';
+        const skipFlag = sessionStorage.getItem('po_skip_auth') === '1';
+        const guestFlag = (params.get('guest') === '1') || hash.includes('guest') || localStorage.getItem('po_guest_mode') === '1';
+        // If user is not signed in
+        if (!user) {
+          if (guestFlag && window.GUEST_MODE) {
+            // attempt to sign in as guest; if fails, sign up then sign in
+            try {
+              let res = await POWizardAPI.signIn({ email: 'guest', password: 'guest' });
+              if (res && res.error) {
+                await POWizardAPI.signUp({ email: 'guest', password: 'guest', displayName: 'مهمان' });
+                await POWizardAPI.signIn({ email: 'guest', password: 'guest' });
+              }
+              document.documentElement.classList.add('guest-mode');
+              // Hide auth modal if available
+              if (typeof window.closeAuthModal === 'function') window.closeAuthModal();
+            } catch (e) {
+              console.warn('Auto guest sign-in failed:', e);
+            }
+          } else if (skipFlag) {
+            // Skip auth: mark skip mode and hide modal
+            document.documentElement.classList.add('skip-mode');
+            if (typeof window.closeAuthModal === 'function') window.closeAuthModal();
+          }
+        } else {
+          // Already signed in
+          if (user.email === 'guest') {
+            document.documentElement.classList.add('guest-mode');
+          }
+          // hide modal for signed in user
+          if (typeof window.closeAuthModal === 'function') window.closeAuthModal();
+        }
+        updateAuthUI();
+      })();
 })();
 </script>
 </body>
