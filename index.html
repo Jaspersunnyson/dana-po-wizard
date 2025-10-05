@@ -1412,6 +1412,41 @@
   </div>
 </div>
 
+<script>
+  (function() {
+    const authModal = document.getElementById('authModal');
+    if (!authModal) return;
+
+    function closeAuthModal() {
+      authModal.classList.add('hidden');
+    }
+
+    function bindAuthClose() {
+      const authClose = document.getElementById('authClose');
+      if (!authClose) return;
+      authClose.removeEventListener('click', closeAuthModal);
+      authClose.addEventListener('click', closeAuthModal);
+    }
+
+    window.closeAuthModal = closeAuthModal;
+    window.bindAuthClose = bindAuthClose;
+
+    bindAuthClose();
+
+    authModal.addEventListener('click', (event) => {
+      if (event.target === authModal) {
+        closeAuthModal();
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !authModal.classList.contains('hidden')) {
+        closeAuthModal();
+      }
+    });
+  })();
+</script>
+
 <!-- History Page -->
 <section id="historyPage" class="hidden">
   <div class="section">
@@ -2498,7 +2533,17 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
       authModal.classList.remove('hidden');
     });
   }
-  if (authClose) authClose.addEventListener('click', () => { authModal.classList.add('hidden'); });
+  if (typeof window.bindAuthClose === 'function') {
+    window.bindAuthClose();
+  } else if (authClose) {
+    authClose.addEventListener('click', () => {
+      if (typeof window.closeAuthModal === 'function') {
+        window.closeAuthModal();
+      } else {
+        authModal.classList.add('hidden');
+      }
+    });
+  }
 
   if (signOutBtn) signOutBtn.addEventListener('click', async () => { await POWizardAPI.signOut(); });
 
@@ -2512,7 +2557,11 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
       authError.textContent = error.message || 'خطا در ثبت‌نام';
     } else {
       authError.textContent = '';
-      authModal.classList.add('hidden');
+      if (typeof window.closeAuthModal === 'function') {
+        window.closeAuthModal();
+      } else {
+        authModal.classList.add('hidden');
+      }
     }
   });
 
@@ -2524,7 +2573,11 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
       authError.textContent = error.message || 'خطا در ورود';
     } else {
       authError.textContent = '';
-      authModal.classList.add('hidden');
+      if (typeof window.closeAuthModal === 'function') {
+        window.closeAuthModal();
+      } else {
+        authModal.classList.add('hidden');
+      }
     }
   });
 
