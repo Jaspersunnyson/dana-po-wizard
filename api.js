@@ -28,7 +28,8 @@
           console.warn('Supabase script missing; extended features may not work. Falling back to localStorage.');
           throw new Error('supabase global missing');
         }
-        supa = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+        if (!window.supabase) { console.warn('Supabase script missing; offline mode.'); throw new Error('supabase missing'); }
+supa = window.supabase.createClient(SUPA_URL, SUPA_KEY);
         // Get current session
         const { data: { session } } = await supa.auth.getSession();
         currentUser = session?.user || null;
