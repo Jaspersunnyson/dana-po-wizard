@@ -90,8 +90,16 @@
     if (supa) {
       return await supa.auth.signInWithPassword({ email, password });
     }
-    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    const user = users.find(u => u.email === email && u.password === password);
+    // Local auth fallback: look up in localStorage
+    let users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+    let user = users.find(u => u.email === email && u.password === password);
+    // If user not found and credentials match the special guest account, auto-create it
+    if (!user && email === 'guest' && password === 'guest') {
+      const id = uuidv4();
+      user = { id, email: 'guest', password: 'guest', displayName: 'Guest' };
+      users.push(user);
+      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    }
     if (!user) {
       return { error: { message: 'کاربر یافت نشد یا رمز نادرست است.' } };
     }
