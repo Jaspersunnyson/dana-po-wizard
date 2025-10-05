@@ -12,7 +12,24 @@
   <script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.38.2/build/docxtemplater.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
   <!-- Supabase for optional backend integration (requires window.SUPABASE_URL & window.SUPABASE_KEY) -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Dynamically load the Supabase library only when keys are provided. If the CDN fails or keys are absent, fall back to offline mode. -->
+  <script>
+    (function () {
+      const url = (window.SUPABASE_URL || '').trim();
+      const key = (window.SUPABASE_KEY || '').trim();
+      if (url && key) {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
+        s.async = true;
+        s.onerror = () => {
+          console.warn('Supabase CDN failed to load — running in offline mode.');
+        };
+        document.head.appendChild(s);
+      } else {
+        console.info('Supabase keys not provided — running in offline/localStorage mode.');
+      }
+    })();
+  </script>
   <!-- Local API helper (handles auth, history, notifications) -->
   <script src="api.js"></script>
 
@@ -92,6 +109,11 @@
   
   .hidden {
     display: none;
+  }
+
+  /* Ensure modals respect the hidden class. Without this, the later .modal rule overrides display and the modal remains visible */
+  .modal.hidden {
+    display: none !important;
   }
   
   .mt-16 {
@@ -1426,34 +1448,83 @@
   </div>
 </div>
 
-<!-- Guard to ensure auth modal can always be closed and helpers exposed -->
+<!-- Guard: ensure auth modal can always be closed and Guest/Skip buttons work even if main script fails -->
 <script>
   (function () {
-    // Enable guest mode globally (can be toggled via backend configuration)
-    window.GUEST_MODE = true;
-    const authModal = document.getElementById('authModal');
-    // Shared helper to close auth modal
-    window.closeAuthModal = function () {
-      if (authModal) authModal.classList.add('hidden');
-    };
-    // Always wire the close button even if main script errors
-    const authCloseBtn = document.getElementById('authClose');
-    if (authModal && authCloseBtn) {
-      authCloseBtn.addEventListener('click', window.closeAuthModal);
+    const $ = (id) => document.getElementById(id);
+    const html = document.documentElement;
+    const modal = $('authModal');
+    const closeBtn = $('authClose');
+    const guestBtn = $('guestBtn');
+    const skipBtn = $('skipAuthBtn');
+    const userEmail = $('userEmail');
+
+    // helper to hide auth modal
+    function closeModal() {
+      if (modal) modal.classList.add('hidden');
     }
-    // Hide modal on backdrop click
-    if (authModal) {
-      authModal.addEventListener('click', (ev) => {
-        if (ev.target === authModal) {
-          window.closeAuthModal();
-        }
+    // expose globally so other scripts can call it
+    window.closeAuthModal = closeModal;
+
+    // Check stored flags on boot to apply guest or skip modes before other scripts run
+    const skipFlag = sessionStorage.getItem('po_skip_auth') === '1';
+    const guestFlag = (localStorage.getItem('po_guest_mode') === '1') ||
+      ((window.location.search || '').includes('guest=1')) ||
+      (((window.location.hash || '').includes('guest')));
+    if (skipFlag) {
+      html.classList.add('skip-mode');
+      closeModal();
+    }
+    if (guestFlag) {
+      html.classList.add('guest-mode');
+      closeModal();
+      if (userEmail) userEmail.textContent = 'مهمان';
+    }
+
+    // Wire close button, backdrop click, escape key
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (modal) {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
       });
     }
-    // Close modal on Escape key
-    document.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape' && authModal && !authModal.classList.contains('hidden')) {
-        window.closeAuthModal();
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+        closeModal();
       }
+    });
+
+    // Guest button: fallback sign-in that works even when Supabase is absent
+    if (guestBtn) guestBtn.addEventListener('click', async () => {
+      try {
+        localStorage.setItem('po_guest_mode', '1');
+        sessionStorage.removeItem('po_skip_auth');
+        html.classList.add('guest-mode');
+        closeModal();
+        // Attempt actual guest sign-in if API is available
+        try {
+          await window.POWizardAPI?.init?.();
+          let res = await window.POWizardAPI?.signIn?.({ email: 'guest', password: 'guest' });
+          if (res && res.error) {
+            // create then sign in
+            await window.POWizardAPI?.signUp?.({ email: 'guest', password: 'guest', displayName: 'مهمان' });
+            await window.POWizardAPI?.signIn?.({ email: 'guest', password: 'guest' });
+          }
+        } catch (_) {
+          // ignore; offline mode
+        }
+        if (userEmail) userEmail.textContent = 'مهمان';
+      } catch (err) {
+        console.error('Guest fallback failed:', err);
+      }
+    });
+
+    // Skip button: hide modal and disable auth
+    if (skipBtn) skipBtn.addEventListener('click', () => {
+      sessionStorage.setItem('po_skip_auth', '1');
+      localStorage.removeItem('po_guest_mode');
+      html.classList.add('skip-mode');
+      closeModal();
     });
   })();
 </script>

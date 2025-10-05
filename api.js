@@ -22,10 +22,12 @@
    */
   async function init() {
     if (SUPA_URL && SUPA_KEY) {
-      // Load Supabase script if not already present
-      if (!window.supabase) {
-        console.warn('Supabase script missing; extended features may not work.');
-      } else {
+      // Attempt to initialise Supabase; fall back gracefully if script is missing or init fails
+      try {
+        if (!window.supabase) {
+          console.warn('Supabase script missing; extended features may not work. Falling back to localStorage.');
+          throw new Error('supabase global missing');
+        }
         supa = window.supabase.createClient(SUPA_URL, SUPA_KEY);
         // Get current session
         const { data: { session } } = await supa.auth.getSession();
@@ -35,6 +37,15 @@
           currentUser = session?.user || null;
           authListeners.forEach(fn => fn(currentUser));
         });
+      } catch (e) {
+        console.warn('Supabase init failed, falling back to localStorage:', e);
+        supa = null;
+        // Local fallback: restore current user from sessionStorage if available
+        const uid = sessionStorage.getItem('po_current_uid');
+        if (uid) {
+          const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+          currentUser = users.find(u => u.id === uid) || null;
+        }
       }
     } else {
       // local fallback: try to restore current user from sessionStorage
