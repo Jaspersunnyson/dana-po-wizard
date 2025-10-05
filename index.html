@@ -2605,14 +2605,23 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
     });
   }
 
-  // Subscribe to auth state changes
-  POWizardAPI.onAuthStateChange(updateAuthUI);
+      // Subscribe to auth state changes
+      POWizardAPI.onAuthStateChange(updateAuthUI);
 
-  // Initialise API and update UI
-  (async () => {
-    await POWizardAPI.init();
-    updateAuthUI();
-  })();
+      // Initialise API and auto-login as guest if no user is present.
+      (async () => {
+        await POWizardAPI.init();
+        let user = POWizardAPI.getCurrentUser();
+        // If no user is signed in yet, automatically sign in with the guest credentials.
+        if (!user) {
+          try {
+            await POWizardAPI.signIn({ email: 'guest', password: 'guest' });
+          } catch (e) {
+            console.warn('Auto guest sign-in failed:', e);
+          }
+        }
+        updateAuthUI();
+      })();
 })();
 </script>
 </body>
