@@ -87,35 +87,37 @@
 
   /** Sign in an existing user. Returns { data, error } */
   async function signIn({ email, password }) {
-    if (supa) {
-      return await supa.auth.signInWithPassword({ email, password });
-    }
-    // Local auth fallback: look up in localStorage
-    let users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    /*
-     * Special case: guest login
-     * If the credentials are guest/guest, always succeed. This ensures that
-     * even if a guest user already exists with a different password, it will
-     * be updated so the login works. Otherwise, a new guest user will be created.
-     */
+    // Always handle the built-in guest account before delegating to Supabase.
+    // If credentials are guest/guest, ensure a local guest user exists and return it.
     if (email === 'guest' && password === 'guest') {
+      // Use the local storage user list regardless of Supabase presence.
+      let users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
       let guestUser = users.find(u => u.email === 'guest') || null;
       if (!guestUser) {
         const id = uuidv4();
         guestUser = { id, email: 'guest', password: 'guest', displayName: 'Guest' };
         users.push(guestUser);
       } else {
-        // ensure password matches guest credential
+        // Ensure password is set to 'guest'
         guestUser.password = 'guest';
       }
+      // Persist updated users list
       localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      // Set current user and notify listeners
       currentUser = guestUser;
       sessionStorage.setItem('po_current_uid', guestUser.id);
       authListeners.forEach(fn => fn(currentUser));
       return { data: guestUser, error: null };
     }
-    // normal local auth
-    let user = users.find(u => u.email === email && u.password === password);
+
+    // If Supabase is configured, use it for all non-guest logins.
+    if (supa) {
+      return await supa.auth.signInWithPassword({ email, password });
+    }
+
+    // Local auth fallback: look up in localStorage
+    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+    const user = users.find(u => u.email === email && u.password === password);
     if (!user) {
       return { error: { message: 'کاربر یافت نشد یا رمز نادرست است.' } };
     }
