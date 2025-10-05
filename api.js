@@ -92,14 +92,30 @@
     }
     // Local auth fallback: look up in localStorage
     let users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    let user = users.find(u => u.email === email && u.password === password);
-    // If user not found and credentials match the special guest account, auto-create it
-    if (!user && email === 'guest' && password === 'guest') {
-      const id = uuidv4();
-      user = { id, email: 'guest', password: 'guest', displayName: 'Guest' };
-      users.push(user);
+    /*
+     * Special case: guest login
+     * If the credentials are guest/guest, always succeed. This ensures that
+     * even if a guest user already exists with a different password, it will
+     * be updated so the login works. Otherwise, a new guest user will be created.
+     */
+    if (email === 'guest' && password === 'guest') {
+      let guestUser = users.find(u => u.email === 'guest') || null;
+      if (!guestUser) {
+        const id = uuidv4();
+        guestUser = { id, email: 'guest', password: 'guest', displayName: 'Guest' };
+        users.push(guestUser);
+      } else {
+        // ensure password matches guest credential
+        guestUser.password = 'guest';
+      }
       localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      currentUser = guestUser;
+      sessionStorage.setItem('po_current_uid', guestUser.id);
+      authListeners.forEach(fn => fn(currentUser));
+      return { data: guestUser, error: null };
     }
+    // normal local auth
+    let user = users.find(u => u.email === email && u.password === password);
     if (!user) {
       return { error: { message: 'کاربر یافت نشد یا رمز نادرست است.' } };
     }
