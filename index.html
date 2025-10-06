@@ -2122,120 +2122,67 @@ document.getElementById('goP').addEventListener('click', async () => {
   }
 });
 
-/* ---------- docx compose helpers & fixed composeDocxBlob ---------- */
+/* ---------- docx compose helpers (local-only libs) ---------- */
 
-/**
- * Attempt to dynamically load a script and resolve on load or reject on error/timeout.
- */
-function loadScriptWithTimeout(src, timeout = 10000) {
-  return new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = src;
-    s.async = true;
-    let done = false;
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      s.onerror = null;
-      s.onload = null;
-      s.remove();
-      reject(new Error('timeout'));
-    }, timeout);
-    s.onload = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve(s);
-    };
-    s.onerror = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      s.remove();
-      reject(new Error('error loading ' + src));
-    };
-    document.head.appendChild(s);
-  });
+function getDocxCtor() {
+  return (window.Docxtemplater)
+      || (window.docxtemplater && window.docxtemplater.default)
+      || (window.docxtemplater);
 }
 
-/**
- * Ensure a Docxtemplater constructor is available on the window.
- * Tries existing globals first, then attempts to dynamically load from known CDNs.
- */
+function hasPizZip() { return !!window.PizZip; }
+function hasMammoth() { return !!window.mammoth; }
+
 async function ensureDocxtemplater() {
-  if (window.Docxtemplater || window.docxtemplater) return;
-  const cdns = [
-    'https://cdn.jsdelivr.net/npm/docxtemplater@3.38.2/build/docxtemplater.js',
-    'https://unpkg.com/docxtemplater@3.38.2/build/docxtemplater.js'
-  ];
-
-  let lastErr = null;
-  for (const url of cdns) {
-    try {
-      await loadScriptWithTimeout(url, 12000);
-      // allow UMD to attach the global
-      await new Promise(r => setTimeout(r, 0));
-      if (window.Docxtemplater || window.docxtemplater) return;
-      lastErr = new Error('script loaded but Docxtemplater global not found from ' + url);
-    } catch (e) {
-      lastErr = e;
-      // try next CDN
-    }
+  const Docx = getDocxCtor();
+  if (!Docx) {
+    throw new Error(
+      'نسخهٔ محلی Docxtemplater بارگذاری نشد. vendor/docxtemplater-3.39.0.js باید قبل از کد برنامه بارگذاری شود.'
+    );
   }
-
-  const msgLines = [
-    'کتابخانه docxtemplater بارگذاری نشد.',
-    'دلایل معمول: CDN مسدود است، محدودیت CSP، یا فایل اسکریپت از بین رفته است.',
-    'اقدام پیشنهادی:',
-    '- بررسی Network tab در DevTools: آیا درخواست /docxtemplater.js با موفقیت 200 برمی‌گردد؟',
-    '- اگر CSP دارید، اجازهٔ بارگذاری از cdn.jsdelivr.net/unpkg.com را اضافه کنید.',
-    '- در صورت قطع بودن CDN در محیط شما، قرار دادن یک کپی محلی از docxtemplater.js در repo و ارجاع آن به جای CDN قابل اطمینان‌تر است.',
-    `خطای آخر: ${lastErr && lastErr.message ? lastErr.message : String(lastErr)}`
-  ];
-  throw new Error(msgLines.join('\n'));
 }
 
-/*
-  Fixed composeDocxBlob:
-  - Ensures docxtemplater is loaded (attempts dynamic load if absent).
-  - Uses whichever global is available (Docxtemplater or docxtemplater).
-  - Provides clearer error messages for network/CSP/template issues.
-*/
+async function ensurePizZip() {
+  if (!hasPizZip()) {
+    throw new Error('PizZip محلی بارگذاری نشد. vendor/pizzip-3.1.7.min.js را بررسی کنید.');
+  }
+}
+
+async function ensureMammoth() {
+  if (!hasMammoth()) {
+    throw new Error('Mammoth محلی بارگذاری نشد. vendor/mammoth.browser.min.js را بررسی کنید.');
+  }
+}
+
+/* Override composeDocxBlob to rely ONLY on local libs */
 async function composeDocxBlob() {
-  // ensure the library is available (loads it if necessary)
+  await ensurePizZip();
   await ensureDocxtemplater();
 
   const ab = await getTemplateArrayBuffer();
   const zip = new PizZip(ab);
 
-  const DocxtemplaterCtor = window.Docxtemplater || window.docxtemplater;
-  if (!DocxtemplaterCtor) {
-    throw new Error('کتابخانه docxtemplater یافت نشد حتی پس از تلاش بارگذاری. لطفاً کنسول شبکه و محدودیت‌های CSP را بررسی کنید.');
-  }
+  const Docx = getDocxCtor();
+  if (!Docx) throw new Error('Docxtemplater در دسترس نیست.');
 
   let doc;
   try {
-    doc = new DocxtemplaterCtor(zip, {
-      paragraphLoop: true,
-      linebreaks: true
-    });
+    doc = new Docx(zip, { paragraphLoop: true, linebreaks: true });
   } catch (e) {
-    throw new Error('ایجاد نمونهٔ Docxtemplater ممکن نشد: ' + (e && e.message ? e.message : String(e)));
+    throw new Error('ایجاد Docxtemplater ناموفق: ' + (e?.message || e));
   }
 
   doc.setData(buildDocxData());
   try {
     doc.render();
   } catch (e) {
-    let msg = '';
-    if (e.properties && Array.isArray(e.properties.errors)) {
+    let msg = e?.message || 'خطای ناشناخته';
+    if (e?.properties?.errors?.length) {
       msg = e.properties.errors.map(err => {
-        const tag = (err.properties && err.properties.tag) ? err.properties.tag : '';
-        const expl = (err.properties && err.properties.explanation) ? err.properties.explanation : (err.message || '');
+        const tag = err.properties?.tag || '';
+        const expl = err.properties?.explanation || err.message || '';
         return `${tag}: ${expl}`;
       }).join('\n');
-    } else {
-      msg = e.message || 'خطای ناشناخته';
     }
     throw new Error(msg);
   }
@@ -2244,6 +2191,15 @@ async function composeDocxBlob() {
     type: 'blob',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   });
+}
+
+/* Override preview to ensure Mammoth */
+async function doPreview() {
+  await ensureMammoth();
+  const blob = await composeDocxBlob();
+  const arrayBuffer = await blob.arrayBuffer();
+  const { value: html } = await window.mammoth.convertToHtml({ arrayBuffer });
+  document.getElementById('preview').innerHTML = html;
 }
 
 /* ---------- remaining docx helpers ---------- */
@@ -2378,13 +2334,6 @@ function buildDocxData() {
 }
 
 /* ---------- preview & download handlers ---------- */
-async function doPreview() {
-  const blob = await composeDocxBlob();
-  const arrayBuffer = await blob.arrayBuffer();
-  const { value: html } = await window.mammoth.convertToHtml({ arrayBuffer });
-  $('preview').innerHTML = html;
-}
-
 document.getElementById('downloadDocx').addEventListener('click', async () => {
   try {
     const btn = document.getElementById('downloadDocx');
