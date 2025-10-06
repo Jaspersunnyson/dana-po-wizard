@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dana — PO/Contract Wizard (v5.5)</title>
 
-  <!-- libs -->
-  <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.7/dist/pizzip.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.7/dist/pizzip-utils.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.38.2/build/docxtemplater.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+ <!-- libs (LOCAL copies; no CDN dependency) -->
+<script src="./vendor/pizzip-3.1.7.min.js"></script>
+<script src="./vendor/pizzip-utils-3.1.7.min.js"></script>
+<script src="./vendor/docxtemplater-3.39.0.js"></script>
+<script src="./vendor/mammoth.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
   <!-- Supabase for optional backend integration (requires window.SUPABASE_URL & window.SUPABASE_KEY) -->
   <!-- Dynamically load the Supabase library only when keys are provided. If the CDN fails or keys are absent, fall back to offline mode. -->
   <script>
