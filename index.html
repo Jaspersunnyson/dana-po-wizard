@@ -2963,5 +2963,227 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
   }, true);
 </script>
 
+
+<!-- ===== Docx Preview/Download Robustness Patch (injected) ===== -->
+<script>
+(function () {
+  // Safe DOM helper
+  const $ = (id) => document.getElementById(id);
+
+  // Wait for external libs (Docxtemplater, PizZip, Mammoth)
+  async function waitForLibs() {
+    let tries = 0;
+    function hasDocx() {
+      return !!(window.Docxtemplater || (window.docxtemplater && (window.docxtemplater.default || window.docxtemplater)));
+    }
+    function hasZip() { return !!(window.PizZip || windowJSZip()); }
+    function hasMammoth() { return !!(window.mammoth); }
+    function windowJSZip(){ return window.JSZip || window.jszip; }
+    while (!(hasDocx() && hasZip() && hasMammoth()) && tries < 100) {
+      await new Promise(r => setTimeout(r, 100));
+      tries++;
+    }
+    if (!hasDocx()) throw new Error('کتابخانه docxtemplater بارگذاری نشد.');
+    if (!hasZip()) throw new Error('کتابخانه PizZip/JSZip بارگذاری نشد.');
+    if (!hasMammoth()) throw new Error('کتابخانه Mammoth بارگذاری نشد.');
+  }
+
+  function getDocxCtor() {
+    return window.Docxtemplater || (window.docxtemplater && (window.docxtemplater.default || window.docxtemplater)) || null;
+  }
+
+  function getZipCtor() {
+    return window.PizZip || window.JSZip || window.jszip || null;
+  }
+
+  // More helpful error presentation (in Persian)
+  function showDocxError(err) {
+    let msg = 'پیش‌نمایش ممکن نشد.
+';
+    if (err && err.message) msg += err.message + '
+';
+    if (err && err.properties && Array.isArray(err.properties.errors)) {
+      msg += 'جزئیات برچسب‌ها:
+';
+      err.properties.errors.forEach((e, idx) => {
+        const tag = e.properties && e.properties.tag ? e.properties.tag : '—';
+        const exp = e.properties && e.properties.explanation ? e.properties.explanation : (e.message || '—');
+        msg += (idx+1) + '. ' + tag + ' — ' + exp + '
+';
+      });
+    }
+    const box = $('previewError') || $('preview');
+    if (box) box.textContent = msg;
+    console.error(err);
+  }
+
+  // Base-aware fetch for the template on GitHub Pages
+  async function fetchTemplateArrayBuffer() {
+    const candidates = [
+      // explicit Pages base
+      new URL('./template/po-noban.template.docx', location.href).toString(),
+      './template/po-noban.template.docx',
+      '/dana-po-wizard/template/po-noban.template.docx'
+    ];
+    let lastErr = null;
+    for (const href of candidates) {
+      try {
+        const res = await fetch(href);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return await res.arrayBuffer();
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw new Error('بارگذاری الگو ناکام ماند: ' + (lastErr ? (lastErr.message || lastErr) : 'نامشخص'));
+  }
+
+  // Ensure data object contains all tags safely
+  function buildDocxDataSafe() {
+    try {
+      const st = window.state || {};
+      const meta = st.meta || {};
+      const items = (st.items || []).map((r, i) => ({
+        idx: (i+1).toString(),
+        spec: r.spec || '',
+        unit: r.unit || '',
+        qty: (r.qty ?? '') + '',
+        unitPrice: (r.unitPrice ?? '') + '',
+        lineTotal: (r.lineTotal ?? '') + ''
+      }));
+      // Derived
+      const issueDateOut = (meta.calendarType === 'jalali' && meta.issueDateJalali) ? meta.issueDateJalali : (meta.issueDate || '');
+      const leadtimeTriggerText = meta.leadtimeTrigger || 'انعقاد قرارداد';
+      const totalNet = (st.totals && st.totals.gross) ? Number(st.totals.gross).toLocaleString('en-US') : (meta.amount ? Number(meta.amount).toLocaleString('en-US') : '');
+      // Arrays used by optional template loops
+      const attachments = (st.attachments || []).map(a => ({
+        title: a.title || '',
+        number: a.number || '',
+        date: a.date || ''
+      }));
+      const deliveryDocs = Array.isArray(meta.deliveryDocs) ? meta.deliveryDocs : [];
+      const supplierSignatories = Array.isArray(st.supplierSignatories) ? st.supplierSignatories : [];
+
+      // Words
+      const amountWords = (meta.amount && window.numToFaWords) ? window.numToFaWords(Number(meta.amount)) : (meta.amountWords || '');
+
+      const out = {
+        // Core
+        subject: meta.subject || '',
+        projectName: meta.projectName || '',
+        poNumber: meta.poNumber || '',
+        issueDate: meta.issueDate || '',
+        issueDateOut,
+        calendarType: meta.calendarType || '',
+        currencyFa: meta.currencyFa || '',
+        amount: meta.amount ? Number(meta.amount).toLocaleString('en-US') : '',
+        amountWords,
+        manufacturerCountry: meta.manufacturerCountry || '',
+        manufacturerName: meta.manufacturerName || '',
+        partial: (meta.partial ? 'بله' : 'خیر'),
+        delivery: meta.delivery || '',
+        term: meta.term || '',
+        // Delivery deadline
+        deliveryDeadlineDays: meta.deliveryDeadlineDays || meta.deliveryDays || '',
+        leadtimeTrigger: meta.leadtimeTrigger || '',
+        leadtimeTriggerText,
+        // Warranty
+        hasWarranty: !!meta.hasWarranty,
+        warrantyMonths: meta.warrantyMonths || '',
+        allowBuyerRep: !!meta.allowBuyerRep,
+        // FX
+        fxSettlement: !!meta.fxSettlement,
+        fxRateSourceLabel: meta.fxRateSourceLabel || '',
+        // Totals + items
+        totalNet,
+        items,
+        // Collections
+        attachments,
+        deliveryDocs,
+        supplierSignatories,
+        // Misc (keep template tolerant)
+        incoterms: meta.incoterms || '',
+        deadlineType: meta.deadlineType || '',
+      };
+      return out;
+    } catch (e) {
+      console.warn('buildDocxDataSafe failed, returning minimal object', e);
+      return {};
+    }
+  }
+
+  // Compose docx with better null handling
+  async function composeDocxBlobPatched() {
+    await waitForLibs();
+    const Docx = getDocxCtor();
+    const Zip = getZipCtor();
+    if (!Docx) throw new Error('ایجاد Docxtemplater ناموفق: کتابخانه در دسترس نیست');
+    if (!Zip) throw new Error('JSZip/PizZip در دسترس نیست');
+    const ab = await fetchTemplateArrayBuffer();
+    const zip = new Zip(ab);
+    const doc = new Docx(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+      nullGetter() { return ''; } // tolerate missing tags to avoid Multi error
+    });
+    const data = buildDocxDataSafe();
+    doc.setData(data);
+    try {
+      doc.render();
+    } catch (err) {
+      // surface detailed errors but still throw to caller
+      showDocxError(err);
+      throw err;
+    }
+    const out = doc.getZip().generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    return out;
+  }
+
+  // Hook into existing preview/download if present, else define fresh ones
+  window.composeDocxBlob = composeDocxBlobPatched;
+
+  async function doPreviewPatched() {
+    try {
+      const blob = await composeDocxBlobPatched();
+      const arrayBuffer = await blob.arrayBuffer();
+      if (!window.mammoth) throw new Error('کتابخانه Mammoth بارگذاری نشد.');
+      const { value: html } = await window.mammoth.convertToHtml({ arrayBuffer });
+      const previewEl = $('preview');
+      if (previewEl) {
+        previewEl.innerHTML = html;
+        const errBox = $('previewError');
+        if (errBox) errBox.textContent = '';
+      }
+    } catch (e) {
+      showDocxError(e);
+    }
+  }
+  window.doPreview = doPreviewPatched;
+
+  // Safe download
+  window.downloadDocx = async function () {
+    try {
+      const blob = await composeDocxBlobPatched();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'PO.docx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      showDocxError(e);
+    }
+  };
+
+  // Ensure preview button (if exists) uses patched function
+  const prevBtn = document.querySelector('[data-act="preview"], #btnPreview, #previewBtn');
+  if (prevBtn) prevBtn.addEventListener('click', (e) => { e.preventDefault(); doPreviewPatched(); });
+
+})();
+</script>
+<!-- ===== End Docx Patch ===== -->
+
 </body>
 </html>
