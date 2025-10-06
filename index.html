@@ -61,7 +61,7 @@
     /* disable pointer events for disabled link buttons */
     .btn.link.disabled { opacity: .45; pointer-events: none; }
   }
-  
+
   body.dark {
     --bg: #0f172a;
     --panel: #1e293b;
@@ -73,13 +73,13 @@
     --border: #334155;
     --chip: #334155;
   }
-  
+
   * {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
   }
-  
+
   body {
     margin: 0;
     font-family: var(--font-fa);
@@ -88,25 +88,25 @@
     line-height: 1.6;
     transition: var(--transition);
   }
-  
+
   h2 {
     font-size: 24px;
     margin: 0 0 20px;
     font-weight: 700;
   }
-  
+
   h3 {
     font-size: 18px;
     margin: 0 0 16px;
     font-weight: 600;
   }
-  
+
   h4 {
     font-size: 16px;
     margin: 0 0 8px;
     font-weight: 600;
   }
-  
+
   .hidden {
     display: none;
   }
@@ -115,11 +115,11 @@
   .modal.hidden {
     display: none !important;
   }
-  
+
   .mt-16 {
     margin-top: 16px;
   }
-  
+
   .mt-8 {
     margin-top: 8px;
   }
@@ -2252,13 +2252,32 @@ function buildDocxData() {
     };
 }
 
+/*
+  FIXED composeDocxBlob:
+  - Use window.Docxtemplater (capital D) as primary constructor; fall back to window.docxtemplater for older builds.
+  - Provide a clear error when docxtemplater didn't load.
+  - Wrap construction in try/catch to provide clearer error messages.
+*/
 async function composeDocxBlob() {
   const ab = await getTemplateArrayBuffer();
   const zip = new PizZip(ab);
-  const doc = new window.docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true
-  });
+
+  // Prefer the standard UMD export (Docxtemplater), fall back to lower-case if some build sets it.
+  const DocxtemplaterCtor = window.Docxtemplater || window.docxtemplater;
+  if (!DocxtemplaterCtor) {
+    throw new Error('کتابخانه docxtemplater بارگذاری نشد. لطفاً تگ <script> مربوط به docxtemplater.js را بررسی کنید.');
+  }
+
+  let doc;
+  try {
+    doc = new DocxtemplaterCtor(zip, {
+      paragraphLoop: true,
+      linebreaks: true
+    });
+  } catch (e) {
+    throw new Error('ایجاد نمونهٔ Docxtemplater ممکن نشد: ' + (e && e.message ? e.message : String(e)));
+  }
+
   doc.setData(buildDocxData());
   try {
     doc.render();
@@ -2302,7 +2321,7 @@ document.getElementById('downloadDocx').addEventListener('click', async () => {
     btn.innerHTML = originalText;
     btn.disabled = false;
   } catch (err) {
-    alert('ساخت Word ناموفق. مسیر/فایل الگو را بررسی کنید.');
+    alert('ساخت Word ناموفق. مسیر/فایل الگو را بررسی کنید.\n' + (err && err.message ? err.message : ''));
     console.error(err);
   }
 });
@@ -2941,4 +2960,4 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
 </script>
 
 </body>
-              </html>
+</html>
