@@ -1528,6 +1528,7 @@
     });
   })();
 </script>
+
 <!-- History Page -->
 <section id="historyPage" class="hidden">
   <div class="section">
@@ -2018,7 +2019,7 @@ const CLAUSES_NOBAN = [
     id: 'delivery',
     title: 'مکان و ترم تحویل کالا',
     options: [
-      'درب انبار فروشنده در ............... به صورت ترم تحویل EX-WORK.',
+      'درب انبار فروشنده در ............... به صورت ترм تحویل EX-WORK.',
       'درب انبار خریدار در اهواز به صورت ترم تحویل DDP. (حسب شمولیت ترم تحویل DDP اینکوترمز 2020، هزینه‌های مربوط به بارگیری، حمل و باراندازی کلیه تجهیزات موضوع قرارداد، به عهده فروشنده می‌باشد و فروشنده متعهد است به هزینه خود نسبت به تأمین و اخذ پوشش بیمه‌ای حمل تجهیزات مذکور اقدام کند. مسئولیت بروز هر نوع حادثه از قبیل آتش‌سوزی، سرقت، تصادف و غیره تا زمان تحویل کالا(های) موضوع قرارداد و تنظیم صورت‌جلسه تحویل بین نماینده خریدار و فروشنده، به عهده فروشنده است.)'
     ]
   },
@@ -2121,7 +2122,131 @@ document.getElementById('goP').addEventListener('click', async () => {
   }
 });
 
-/* ---------- docx compose ---------- */
+/* ---------- docx compose helpers & fixed composeDocxBlob ---------- */
+
+/**
+ * Attempt to dynamically load a script and resolve on load or reject on error/timeout.
+ */
+function loadScriptWithTimeout(src, timeout = 10000) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      s.onerror = null;
+      s.onload = null;
+      s.remove();
+      reject(new Error('timeout'));
+    }, timeout);
+    s.onload = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(s);
+    };
+    s.onerror = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      s.remove();
+      reject(new Error('error loading ' + src));
+    };
+    document.head.appendChild(s);
+  });
+}
+
+/**
+ * Ensure a Docxtemplater constructor is available on the window.
+ * Tries existing globals first, then attempts to dynamically load from known CDNs.
+ */
+async function ensureDocxtemplater() {
+  if (window.Docxtemplater || window.docxtemplater) return;
+  const cdns = [
+    'https://cdn.jsdelivr.net/npm/docxtemplater@3.38.2/build/docxtemplater.js',
+    'https://unpkg.com/docxtemplater@3.38.2/build/docxtemplater.js'
+  ];
+
+  let lastErr = null;
+  for (const url of cdns) {
+    try {
+      await loadScriptWithTimeout(url, 12000);
+      // allow UMD to attach the global
+      await new Promise(r => setTimeout(r, 0));
+      if (window.Docxtemplater || window.docxtemplater) return;
+      lastErr = new Error('script loaded but Docxtemplater global not found from ' + url);
+    } catch (e) {
+      lastErr = e;
+      // try next CDN
+    }
+  }
+
+  const msgLines = [
+    'کتابخانه docxtemplater بارگذاری نشد.',
+    'دلایل معمول: CDN مسدود است، محدودیت CSP، یا فایل اسکریپت از بین رفته است.',
+    'اقدام پیشنهادی:',
+    '- بررسی Network tab در DevTools: آیا درخواست /docxtemplater.js با موفقیت 200 برمی‌گردد؟',
+    '- اگر CSP دارید، اجازهٔ بارگذاری از cdn.jsdelivr.net/unpkg.com را اضافه کنید.',
+    '- در صورت قطع بودن CDN در محیط شما، قرار دادن یک کپی محلی از docxtemplater.js در repo و ارجاع آن به جای CDN قابل اطمینان‌تر است.',
+    `خطای آخر: ${lastErr && lastErr.message ? lastErr.message : String(lastErr)}`
+  ];
+  throw new Error(msgLines.join('\n'));
+}
+
+/*
+  Fixed composeDocxBlob:
+  - Ensures docxtemplater is loaded (attempts dynamic load if absent).
+  - Uses whichever global is available (Docxtemplater or docxtemplater).
+  - Provides clearer error messages for network/CSP/template issues.
+*/
+async function composeDocxBlob() {
+  // ensure the library is available (loads it if necessary)
+  await ensureDocxtemplater();
+
+  const ab = await getTemplateArrayBuffer();
+  const zip = new PizZip(ab);
+
+  const DocxtemplaterCtor = window.Docxtemplater || window.docxtemplater;
+  if (!DocxtemplaterCtor) {
+    throw new Error('کتابخانه docxtemplater یافت نشد حتی پس از تلاش بارگذاری. لطفاً کنسول شبکه و محدودیت‌های CSP را بررسی کنید.');
+  }
+
+  let doc;
+  try {
+    doc = new DocxtemplaterCtor(zip, {
+      paragraphLoop: true,
+      linebreaks: true
+    });
+  } catch (e) {
+    throw new Error('ایجاد نمونهٔ Docxtemplater ممکن نشد: ' + (e && e.message ? e.message : String(e)));
+  }
+
+  doc.setData(buildDocxData());
+  try {
+    doc.render();
+  } catch (e) {
+    let msg = '';
+    if (e.properties && Array.isArray(e.properties.errors)) {
+      msg = e.properties.errors.map(err => {
+        const tag = (err.properties && err.properties.tag) ? err.properties.tag : '';
+        const expl = (err.properties && err.properties.explanation) ? err.properties.explanation : (err.message || '');
+        return `${tag}: ${expl}`;
+      }).join('\n');
+    } else {
+      msg = e.message || 'خطای ناشناخته';
+    }
+    throw new Error(msg);
+  }
+
+  return doc.getZip().generate({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  });
+}
+
+/* ---------- remaining docx helpers ---------- */
 async function fetchArrayBuffer(url) {
   return new Promise((res, rej) => PizZipUtils.getBinaryContent(url, (err, data) => err ? rej(err) : res(data)));
 }
@@ -2252,142 +2377,7 @@ function buildDocxData() {
     };
 }
 
-/*
-  Small focused patch: dynamically load docxtemplater if missing and ensure composeDocxBlob waits.
-  Replaces the old composeDocxBlob with a helper that retries CDNs and surfaces clear errors.
-*/
-
-/* Replace composeDocxBlob with dynamic loader + safe constructor usage */
-<script>
-/**
- * Attempt to dynamically load a script and resolve on load or reject on error/timeout.
- * Returns the created <script> element when successful.
- */
-function loadScriptWithTimeout(src, timeout = 10000) {
-  return new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = src;
-    s.async = true;
-    let done = false;
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      s.onerror = null;
-      s.onload = null;
-      s.remove();
-      reject(new Error('timeout'));
-    }, timeout);
-    s.onload = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve(s);
-    };
-    s.onerror = (ev) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      s.remove();
-      reject(new Error('error loading ' + src));
-    };
-    document.head.appendChild(s);
-  });
-}
-
-/**
- * Ensure a Docxtemplater constructor is available on the window.
- * Tries existing globals first, then attempts to dynamically load from known CDNs.
- * If still missing, throws an Error with actionable suggestions.
- */
-async function ensureDocxtemplater() {
-  if (window.Docxtemplater || window.docxtemplater) return;
-  // Candidate CDN URLs (try in order)
-  const cdns = [
-    'https://cdn.jsdelivr.net/npm/docxtemplater@3.38.2/build/docxtemplater.js',
-    'https://unpkg.com/docxtemplater@3.38.2/build/docxtemplater.js'
-  ];
-
-  let lastErr = null;
-  for (const url of cdns) {
-    try {
-      await loadScriptWithTimeout(url, 12000);
-      // give a microtask to settle UMD global
-      await new Promise(r => setTimeout(r, 0));
-      if (window.Docxtemplater || window.docxtemplater) return;
-      lastErr = new Error('script loaded but Docxtemplater global not found from ' + url);
-    } catch (e) {
-      lastErr = e;
-      // try next CDN
-    }
-  }
-
-  // Nothing worked — build a helpful error message for the UI
-  const msgLines = [
-    'کتابخانه docxtemplater بارگذاری نشد.',
-    'دلایل معمول: CDN مسدود است، محدودیت CSP، یا فایل اسکریپت از بین رفته است.',
-    'اقدام پیشنهادی:',
-    '- بررسی Network tab در DevTools: آیا درخواست /docxtemplater.js با موفقیت ۲۰۰ برمی‌گردد؟',
-    '- اگر CSP دارید، اجازهٔ بارگذاری از cdn.jsdelivr.net/unpkg.com را اضافه کنید.',
-    '- در صورت قطع بودن CDN در محیط شما، قرار دادن یک کپی محلی از docxtemplater.js در repo و ارجاع آن به جای CDN قابل اطمینان‌تر است.',
-    `خطای آخر: ${lastErr && lastErr.message ? lastErr.message : String(lastErr)}`
-  ];
-  throw new Error(msgLines.join('\n'));
-}
-
-/*
-  Fixed composeDocxBlob:
-  - Ensures docxtemplater is loaded (attempts dynamic load if absent).
-  - Uses whichever global is available (Docxtemplater or docxtemplater).
-  - Provides clearer error messages for network/CSP/template issues.
-*/
-async function composeDocxBlob() {
-  // make sure docxtemplater library is available (load if necessary)
-  await ensureDocxtemplater();
-
-  const ab = await getTemplateArrayBuffer();
-  const zip = new PizZip(ab);
-
-  // Prefer the standard UMD export (Docxtemplater), fall back to lower-case if some build sets it.
-  const DocxtemplaterCtor = window.Docxtemplater || window.docxtemplater;
-  if (!DocxtemplaterCtor) {
-    // Very unlikely at this point, but guard anyway
-    throw new Error('کتابخانه docxtemplater یافت نشد حتی پس از تلاش بارگذاری. لطفاً کنسول شبکه و محدودیت‌های CSP را بررسی کنید.');
-  }
-
-  let doc;
-  try {
-    doc = new DocxtemplaterCtor(zip, {
-      paragraphLoop: true,
-      linebreaks: true
-    });
-  } catch (e) {
-    throw new Error('ایجاد نمونهٔ Docxtemplater ممکن نشد: ' + (e && e.message ? e.message : String(e)));
-  }
-
-  doc.setData(buildDocxData());
-  try {
-    doc.render();
-  } catch (e) {
-    // Build a detailed error message for template issues
-    let msg = '';
-    if (e.properties && Array.isArray(e.properties.errors)) {
-      msg = e.properties.errors.map(err => {
-        const tag = (err.properties && err.properties.tag) ? err.properties.tag : '';
-        const expl = (err.properties && err.properties.explanation) ? err.properties.explanation : (err.message || '');
-        return `${tag}: ${expl}`;
-      }).join('\n');
-    } else {
-      msg = e.message || 'خطای ناشناخته';
-    }
-    throw new Error(msg);
-  }
-  return doc.getZip().generate({
-    type: 'blob',
-    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  });
-}
-</script>
-
+/* ---------- preview & download handlers ---------- */
 async function doPreview() {
   const blob = await composeDocxBlob();
   const arrayBuffer = await blob.arrayBuffer();
