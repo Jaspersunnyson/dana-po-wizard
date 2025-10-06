@@ -8,8 +8,45 @@
  <!-- libs (LOCAL copies; no CDN dependency) -->
 <script src="./vendor/pizzip-3.1.7.min.js"></script>
 <script src="./vendor/pizzip-utils-3.1.7.min.js"></script>
-<script src="./vendor/docxtemplater-3.39.0.js"></script>
+<script>
+  (function loadDocxtemplater() {
+    function inject(src, onload) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = function () { onload(true); };
+      s.onerror = function () { onload(false); };
+      document.head.appendChild(s);
+    }
+    inject('./vendor/docxtemplater-3.39.0.js', function (ok) {
+      if (ok) return;
+      inject('https://cdn.jsdelivr.net/npm/docxtemplater@3.39.0/build/docxtemplater.js', function () {
+        console.warn('Loaded Docxtemplater via CDN fallback');
+      });
+    });
+  })();
+</script>
 <script src="./vendor/mammoth.browser.min.js"></script>
+<script>
+  async function waitDocxLibs() {
+    const ready = () => (window.PizZip &&
+      (window.docxtemplater?.default ||
+       window.docxtemplater ||
+       window.Docxtemplater));
+    for (let i = 0; i < 100 && !ready(); i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    if (!ready()) throw new Error('کتابخانه‌های Docxtemplater/PizZip بارگذاری نشدند.');
+  }
+  function getDocxCtor() {
+    return window.docxtemplater?.default || window.docxtemplater || window.Docxtemplater;
+  }
+  async function waitMammoth() {
+    for (let i = 0; i < 100 && !window.mammoth; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    if (!window.mammoth) throw new Error('کتابخانه Mammoth بارگذاری نشد.');
+  }
+</script>
 <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
   <!-- Supabase for optional backend integration (requires window.SUPABASE_URL & window.SUPABASE_KEY) -->
   <!-- Dynamically load the Supabase library only when keys are provided. If the CDN fails or keys are absent, fall back to offline mode. -->
@@ -1073,7 +1110,7 @@
     
     <div class="actions">
       <span class="hint">اگر فایل الگو ندهید از مسیر <code>template/po-noban.template.docx</code> خوانده می‌شود.</span>
-      <button class="btn primary" id="go2">
+      <button class="btn primary" id="go2" data-go-step="2">
         ادامه
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M10.5 8L6.5 4V12L10.5 8Z" fill="currentColor"/>
@@ -1110,7 +1147,7 @@
     </div>
     <div class="actions">
       <button class="btn secondary" id="back2">بازگشت</button>
-      <button class="btn primary" id="go3">ادامه
+      <button class="btn primary" id="go3" data-go-step="3">ادامه
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M10.5 8L6.5 4V12L10.5 8Z" fill="currentColor"/>
         </svg>
@@ -1334,7 +1371,7 @@
       </button>
       <div class="row">
         <span id="s3status"></span>
-        <button class="btn primary" id="go4">
+        <button class="btn primary" id="go4" data-go-step="4">
           ادامه
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M10.5 8L6.5 4V12L10.5 8Z" fill="currentColor"/>
@@ -1688,23 +1725,31 @@ $('currency').addEventListener('change', e => {
   save();
 });
 
-// display initial amount with comma separators if present
-$('amount').value = state.meta.amount ? Number(state.meta.amount).toLocaleString('en-US') : '';
-$('amount').addEventListener('input', e => {
-  // normalize raw string by removing commas and non-digits
-  const raw = e.target.value.toString().replace(/,/g, '');
-  // keep only digits (ignore other keys like arrows/backspace)
-  const digits = raw.replace(/\D/g, '');
-  const num = digits ? parseInt(digits, 10) : 0;
-  // store numeric value (empty string if zero)
-  state.meta.amount = (!isNaN(num) && num > 0) ? num : '';
-  // update amount words using global helper if available
-  state.meta.amountWords = (!isNaN(num) && num > 0 && window.numToFaWords) ? window.numToFaWords(num) : '';
-  // update displayed value with comma separators or clear if zero
-  e.target.value = (!isNaN(num) && num > 0) ? num.toLocaleString('en-US') : '';
-  computeDerived();
-  save();
-});
+// Safe amount init & bindings
+(function () {
+  const amountEl = document.getElementById('amount');
+  if (!amountEl) return;
+  function toWordsFa(n) {
+    return (typeof window.numToFaWords === 'function') ? window.numToFaWords(n) : '';
+  }
+  try {
+    const amt = Number(state?.meta?.amount || 0);
+    amountEl.value = amt ? amt.toLocaleString('en-US') : '';
+  } catch (_) {
+    amountEl.value = '';
+  }
+  amountEl.addEventListener('input', e => {
+    const raw = String(e.target.value || '').replace(/,/g, '');
+    const num = raw ? parseInt(raw, 10) : 0;
+    window.state = window.state || {};
+    state.meta = state.meta || {};
+    state.meta.amount = Number.isFinite(num) ? num : 0;
+    state.meta.amountWords = num ? toWordsFa(num) : '';
+    e.target.value = num ? num.toLocaleString('en-US') : '';
+    if (typeof computeDerived === 'function') computeDerived();
+    if (typeof save === 'function') save();
+  });
+})();
 
 // set initial values for new select inputs
 if ($('deadlineType')) {
@@ -2124,40 +2169,9 @@ document.getElementById('goP').addEventListener('click', async () => {
 
 /* ---------- docx compose helpers (local-only libs) ---------- */
 
-function getDocxCtor() {
-  return (window.Docxtemplater)
-      || (window.docxtemplater && window.docxtemplater.default)
-      || (window.docxtemplater);
-}
-
-function hasPizZip() { return !!window.PizZip; }
-function hasMammoth() { return !!window.mammoth; }
-
-async function ensureDocxtemplater() {
-  const Docx = getDocxCtor();
-  if (!Docx) {
-    throw new Error(
-      'نسخهٔ محلی Docxtemplater بارگذاری نشد. vendor/docxtemplater-3.39.0.js باید قبل از کد برنامه بارگذاری شود.'
-    );
-  }
-}
-
-async function ensurePizZip() {
-  if (!hasPizZip()) {
-    throw new Error('PizZip محلی بارگذاری نشد. vendor/pizzip-3.1.7.min.js را بررسی کنید.');
-  }
-}
-
-async function ensureMammoth() {
-  if (!hasMammoth()) {
-    throw new Error('Mammoth محلی بارگذاری نشد. vendor/mammoth.browser.min.js را بررسی کنید.');
-  }
-}
-
-/* Override composeDocxBlob to rely ONLY on local libs */
+/* Override composeDocxBlob to rely on local libs with fallback */
 async function composeDocxBlob() {
-  await ensurePizZip();
-  await ensureDocxtemplater();
+  await waitDocxLibs();
 
   const ab = await getTemplateArrayBuffer();
   const zip = new PizZip(ab);
@@ -2195,7 +2209,8 @@ async function composeDocxBlob() {
 
 /* Override preview to ensure Mammoth */
 async function doPreview() {
-  await ensureMammoth();
+  await waitDocxLibs();
+  await waitMammoth();
   const blob = await composeDocxBlob();
   const arrayBuffer = await blob.arrayBuffer();
   const { value: html } = await window.mammoth.convertToHtml({ arrayBuffer });
@@ -2918,71 +2933,34 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
 })();
 </script>
 
-<!-- ===== Injected: Safe amount init & Wizard Navigation Guard ===== -->
+<!-- ===== Wizard Navigation Guard ===== -->
 <script>
-(function(){
-  // Safe init for مبلغ بدون VAT
-  var el = document.getElementById('amount');
-  if (el) {
-    function toWordsFa(n){
-      try { return (typeof window.numToFaWords === 'function') ? window.numToFaWords(n) : ''; } catch(e){ return ''; }
-    }
-    try {
-      var amt = (window.state && state.meta && state.meta.amount) ? Number(state.meta.amount) : 0;
-      el.value = amt ? Number(amt).toLocaleString('en-US') : '';
-    } catch (e) { el.value = ''; }
-    el.addEventListener('keydown', function(e){
-      var allow = ['Backspace','Delete','ArrowLeft','ArrowRight','Tab','Home','Home','End'];
-      if (allow.indexOf(e.key) !== -1) return;
-      if (!/^\d$/.test(e.key)) e.preventDefault();
-    });
-    el.addEventListener('input', function(e){
-      var raw = String(e.target.value || '').replace(/,/g,'');
-      var num = raw ? parseInt(raw,10) : 0;
-      try {
-        window.state = window.state || {};
-        state.meta = state.meta || {};
-        state.meta.amount = Number.isFinite(num) ? num : 0;
-        state.meta.amountWords = (state.meta.amount > 0) ? toWordsFa(state.meta.amount) : '';
-      } catch(_) {}
-      e.target.value = (Number.isFinite(num) && num>0) ? num.toLocaleString('en-US') : '';
-    });
-  }
-
-  // Wizard Navigation Guard
-  function showStep(idx){
-    var steps = document.querySelectorAll('.step');
-    if (!steps.length) return;
-    steps.forEach ? steps.forEach(function(el,i){ el.classList.toggle('hidden', i !== (idx-1)); })
-                  : Array.prototype.forEach.call(steps, function(el,i){ el.classList.toggle('hidden', i !== (idx-1)); });
-    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(_) {}
-  }
-
-  document.addEventListener('click', function(ev){
-    var btn = ev.target.closest ? ev.target.closest('[data-go-step], #next1, #nextBtn, .btn-next, .btn-next-1, .nextBtn')
-                                : null;
+  document.addEventListener('click', function (ev) {
+    var btn = ev.target.closest && ev.target.closest('[data-go-step]');
     if (!btn) return;
     ev.preventDefault();
 
-    var targetAttr = btn.getAttribute('data-go-step');
-    var target = targetAttr ? parseInt(targetAttr, 10) : NaN;
-    if (!target || isNaN(target)) {
-      var steps = Array.prototype.slice.call(document.querySelectorAll('.step'));
-      var curIndex = steps.findIndex ? steps.findIndex(function(el){ return !el.classList.contains('hidden'); })
-                                     : (function(){ for (var i=0;i<steps.length;i++){ if (!steps[i].classList.contains('hidden')) return i; } return -1; })();
-      target = curIndex >= 0 ? Math.min(curIndex + 2, steps.length) : 2;
+    var target = btn.getAttribute('data-go-step');
+    if (!target) return;
+
+    if (typeof window.goStep === 'function') {
+      window.goStep(target);
+      return;
     }
 
-    try {
-      var validateIdx = btn.getAttribute('data-validate') || String(target-1);
-      var fn = window['validateStage' + validateIdx];
-      if (typeof fn === 'function' && fn() === false) return;
-    } catch(_) {}
+    if (typeof window.showStage === 'function') {
+      window.showStage(target);
+      return;
+    }
 
-    if (typeof window.goStep === 'function') window.goStep(target);
-    else showStep(target);
+    var stages = document.querySelectorAll('.stage');
+    stages.forEach(function (el) {
+      var stageKey = ((el.dataset && el.dataset.stage) || el.id.replace(/^stage/i, '') || '').toString();
+      var current = stageKey.toLowerCase();
+      var desired = target.toString().toLowerCase();
+      el.classList.toggle('hidden', current !== desired);
+    });
   }, true);
-})();
 </script>
 
 </body>
