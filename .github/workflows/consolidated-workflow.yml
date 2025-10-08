@@ -52,9 +52,8 @@ jobs:
           
           # Download with error checking
           curl -fSL https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip.min.js -o libs/pizzip.min.js
-          curl -fSL https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip-utils.min.js -o libs/pizzip-utils.min.js
           curl -fSL https://unpkg.com/docxtemplater@3.66.6/build/docxtemplater.js -o libs/docxtemplater.js
-          curl -fSL https://unpkg.com/mammoth@1.11.0/dist/mammoth.browser.min.js -o libs/mammoth.browser.min.js
+          curl -fSL https://unpkg.com/mammoth@1.11.0/mammoth.browser.min.js -o libs/mammoth.browser.min.js
           
           # Create versions file
           cat > libs/versions.json <<EOF
@@ -228,7 +227,6 @@ jobs:
             if (!html.includes('libs/pizzip.min.js')) {
               const libScripts = `
             <script src="libs/pizzip.min.js"></script>
-            <script src="libs/pizzip-utils.min.js"></script>
             <script src="libs/docxtemplater.js"></script>
             <script src="libs/mammoth.browser.min.js"></script>`;
               
