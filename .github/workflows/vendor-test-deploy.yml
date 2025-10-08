@@ -16,6 +16,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
 
       # 1) Vendor libs to /libs (no CDN at runtime)
       - name: Vendor browser libs
@@ -106,26 +112,28 @@ jobs:
 
             // Append safe composer wrapper once
             if (!/composeDocxBlobPatched/.test(html)) {
-              html += `
-<!-- patched composer -->
-<script>
-window.composeDocxBlob = async function (arrayBuffer, data){
-  const zip = new PizZip(arrayBuffer);
-  const doc = new docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true,
-    errorLogging: true,
-    delimiters: { start: '{{', end: '}}' },
-    nullGetter(){ return '' }
-  });
-  doc.render(data || {});
-  return doc.getZip().generate({
-    type: 'blob',
-    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  });
-};
-window.composeDocxBlobPatched = window.composeDocxBlob;
-</script>`;
+              html += [
+                '',
+                '<!-- patched composer -->',
+                '<script>',
+                'window.composeDocxBlob = async function (arrayBuffer, data){',
+                '  const zip = new PizZip(arrayBuffer);',
+                '  const doc = new docxtemplater(zip, {',
+                "    paragraphLoop: true,",
+                "    linebreaks: true,",
+                "    errorLogging: true,",
+                "    delimiters: { start: '{{', end: '}}' },",
+                "    nullGetter(){ return '' }",
+                '  });',
+                '  doc.render(data || {});',
+                '  return doc.getZip().generate({',
+                "    type: 'blob',",
+                "    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'",
+                '  });',
+                '};',
+                'window.composeDocxBlobPatched = window.composeDocxBlob;',
+                '</script>'
+              ].join('\n');
             }
 
             fs.writeFileSync(path, html, 'utf8');
@@ -168,8 +176,7 @@ window.composeDocxBlobPatched = window.composeDocxBlob;
       - name: Install test deps
         run: |
           set -e
-          npm init -y >/dev/null 2>&1
-          npm install --no-audit --no-fund docxtemplater@3.66.6 pizzip@3.2.0 mammoth@1.11.0
+          npm install --no-audit --no-fund --no-save --package-lock=false docxtemplater@3.66.6 pizzip@3.2.0 mammoth@1.11.0
 
       - name: Create & run smoke test
         run: |
@@ -211,8 +218,15 @@ window.composeDocxBlobPatched = window.composeDocxBlob;
           JS
           node tests/smoke_test.js
 
+      - name: Clean up node modules
+        run: |
+          set -e
+          rm -rf node_modules package-lock.json package.json
+
       # 6) Commit changes back (idempotent)
       - name: Commit changes back
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
         run: |
           set -e
           git config user.name "github-actions[bot]"
@@ -220,7 +234,7 @@ window.composeDocxBlobPatched = window.composeDocxBlob;
           git add -A
           if ! git diff --staged --quiet; then
             git commit -m "PO Wizard: vendor local libs, normalize template, patch index.html, add smoke test"
-            git push
+            git push origin HEAD:"$BRANCH_NAME"
           else
             echo "No repo changes to commit."
           fi
