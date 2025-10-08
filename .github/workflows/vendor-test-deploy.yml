@@ -85,7 +85,6 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const core = require('@actions/core');
             const path = 'index.html';
             if (!fs.existsSync(path)) {
               core.setFailed('index.html not found at repo root');
