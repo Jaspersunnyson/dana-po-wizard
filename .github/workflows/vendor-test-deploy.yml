@@ -1,60 +1,253 @@
-name: Normalize DOCX templates to {{ }}
+name: Fix, Vendor, Test & Deploy
 
 on:
+  workflow_dispatch:
   push:
-    paths:
-      - "**/*.docx"
-  workflow_dispatch: {}
+    branches: [ main ]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
-  normalize:
+  fix_vendor_test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Add fixer script and run
+      - name: Vendor browser libs (no CDN at runtime)
         run: |
+          set -e
+          mkdir -p libs
+          curl -L https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip.min.js -o libs/pizzip.min.js
+          curl -L https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip-utils.min.js -o libs/pizzip-utils.min.js
+          curl -L https://unpkg.com/docxtemplater@3.66.6/build/docxtemplater.js -o libs/docxtemplater.js
+          curl -L https://unpkg.com/mammoth@1.11.0/dist/mammoth.browser.min.js -o libs/mammoth.browser.min.js
+          printf '{\n  "docxtemplater": "3.66.6",\n  "pizzip": "3.2.0",\n  "mammoth": "1.11.0",\n  "updated_at": "%s"\n}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > libs/versions.json
+          ls -l libs
+
+      - name: Create tag-normalizer script
+        run: |
+          set -e
           mkdir -p scripts
-          cat > scripts/fix_docx_delimiters.py << 'PY'
-import zipfile, re, sys, os
-def fix_docx(src, dst):
-    pat_open = re.compile(r'(?<!\\{)\\{#([A-Za-z0-9_.-]+)\\}(?!\\})')
-    pat_close = re.compile(r'(?<!\\{)\\{\\/([A-Za-z0-9_.-]+)\\}(?!\\})')
-    pat_inv = re.compile(r'(?<!\\{)\\{\\^([A-Za-z0-9_.-]+)\\}(?!\\})')
-    with zipfile.ZipFile(src, 'r') as zin, zipfile.ZipFile(dst, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
-        for item in zin.infolist():
-            data = zin.read(item.filename)
-            if item.filename.startswith("word/") and item.filename.endswith(".xml"):
-                try: text = data.decode("utf-8")
-                except Exception: text = data.decode("latin-1", errors="ignore")
-                text2 = pat_open.sub(r'{{#\\1}}', text)
-                text2 = pat_close.sub(r'{{/\\1}}', text2)
-                text2 = pat_inv.sub(r'{{^\\1}}', text2)
-                if text2 != text: data = text2.encode("utf-8")
-            zout.writestr(item, data)
-if __name__ == "__main__":
-    for path in sys.argv[1:]:
-        base, ext = os.path.splitext(path)
-        out = base + ".fixed" + ext
-        fix_docx(path, out)
-        print("fixed:", out)
-PY
-          python3 scripts/fix_docx_delimiters.py *.docx || true
+          cat > scripts/fix_docx_tags.py <<'PY'
+          #!/usr/bin/env python3
+          import sys, zipfile, re, tempfile, shutil
+          from pathlib import Path
 
-      - name: Commit fixed templates
+          TAG_RX = re.compile(r"\{([#/\^])\s*([^{}]+?)\}")
+
+          def fix_xml_text(txt: str) -> str:
+              return TAG_RX.sub(lambda m: "{{%s%s}}" % (m.group(1), m.group(2).strip()), txt)
+
+          def process_docx(path: Path) -> Path:
+              fixed = path.with_name(f"{path.stem}.fixed{path.suffix}")
+              tmpdir = Path(tempfile.mkdtemp(prefix="fixdocx_"))
+              try:
+                  with zipfile.ZipFile(path, "r") as z:
+                      z.extractall(tmpdir)
+                  for p in tmpdir.rglob("*.xml"):
+                      p.write_text(fix_xml_text(p.read_text(encoding="utf-8")), encoding="utf-8")
+                  with zipfile.ZipFile(fixed, "w", zipfile.ZIP_DEFLATED) as z:
+                      for p in sorted(tmpdir.rglob("*")):
+                          if p.is_file():
+                              z.write(p, p.relative_to(tmpdir).as_posix())
+                  return fixed
+              finally:
+                  shutil.rmtree(tmpdir, ignore_errors=True)
+
+          def main():
+              root = Path(sys.argv[1] if len(sys.argv) > 1 else "template")
+              for docx in root.glob("*.docx"):
+                  out = process_docx(docx)
+                  print(f"fixed: {out}")
+
+          if __name__ == "__main__":
+              main()
+          PY
+          chmod +x scripts/fix_docx_tags.py
+
+      - name: Normalize DOCX section tags
         run: |
-          if ls *.fixed.docx >/dev/null 2>&1; then
-            git config user.name "github-actions"
-            git config user.email "actions@github.com"
-            git add *.fixed.docx
-            git commit -m "chore(templates): normalized {{ }} delimiters"
-            git push
+          set -e
+          if [ -d "template" ]; then
+            python3 scripts/fix_docx_tags.py template
+            ls -l template/*fixed.docx || true
+          else
+            echo "No template directory found. Skipping normalization."
           fi
+
+      - name: Patch index.html (use local libs + fixed template)
+        run: |
+          set -e
+          if [ ! -f "index.html" ]; then
+            echo "index.html not found at repo root" >&2
+            exit 1
+          fi
+
+          # Remove any external CDN script tags for these libs
+          sed -i -E '/(unpkg|jsdelivr).*(docxtemplater|pizzip|mammoth)/Id' index.html || true
+
+          # Ensure local libs are loaded after <head>
+          if ! grep -q 'libs/pizzip.min.js' index.html; then
+            sed -i '/<head[^>]*>/a \
+            <script src="libs/pizzip.min.js"></script>\n\
+            <script src="libs/pizzip-utils.min.js"></script>\n\
+            <script src="libs/docxtemplater.js"></script>\n\
+            <script src="libs/mammoth.browser.min.js"></script>' index.html
+          fi
+
+          # Switch template filename to the normalized one if original is referenced
+          sed -i 's/po-noban\.template\.docx/po-noban.template.fixed.docx/g' index.html
+
+          # Append a safe composer wrapper once
+          if ! grep -q 'composeDocxBlobPatched' index.html; then
+            cat >> index.html <<'HTML'
+            <script>
+            (function(){
+              function ready(fn){ if(document.readyState!=='loading'){fn();} else {document.addEventListener('DOMContentLoaded',fn);} }
+              ready(function(){
+                if(!window.PizZip || !window.docxtemplater){
+                  console.warn('Doc libraries not loaded'); return;
+                }
+                window.composeDocxBlobPatched = async function (arrayBuffer, data){
+                  const zip = new window.PizZip(arrayBuffer);
+                  const doc = new window.docxtemplater(zip, {
+                    paragraphLoop: true,
+                    linebreaks: true,
+                    errorLogging: true,
+                    delimiters: { start: '{{', end: '}}' },
+                    nullGetter(){ return ''; }
+                  });
+                  doc.render(data || {});
+                  return doc.getZip().generate({
+                    type: 'blob',
+                    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                  });
+                };
+                window.composeDocxBlob = window.composeDocxBlobPatched;
+              });
+            })();
+            </script>
+            HTML
+          fi
+
+      - name: Add smoke-data (covers typical fields)
+        run: |
+          set -e
+          mkdir -p tests
+          cat > tests/smoke_data.json <<'JSON'
+          {
+            "meta": {
+              "poNumber": "PO-2025-001",
+              "issueDate": "2025-01-01",
+              "subject": "نمونه سفارش",
+              "projectName": "پروژه نمونه",
+              "manufacturerName": "شرکت نمونه",
+              "manufacturerCountry": "ایران",
+              "amount": 1000000,
+              "amountWords": "یک میلیون",
+              "currency": "IRR",
+              "currencyFa": "ریال",
+              "deliveryDays": 30,
+              "deliveryType": "کاری"
+            },
+            "items": [
+              { "row": 1, "description": "کالای A", "qty": 5, "unit": "EA", "unitPrice": 10000, "total": 50000 },
+              { "row": 2, "description": "کالای B", "qty": 2, "unit": "EA", "unitPrice": 250000, "total": 500000 }
+            ],
+            "clauses": { "delivery": "DAP", "payment": "30days", "warranty": "12months" }
+          }
+          JSON
+
+      - name: Setup Node for smoke test
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install test deps (CI only)
+        run: |
+          set -e
+          npm init -y >/dev/null 2>&1
+          npm install --no-audit --no-fund docxtemplater@3.66.6 pizzip@3.2.0 mammoth@1.11.0
+
+      - name: Create & run smoke test
+        run: |
+          set -e
+          cat > tests/smoke_test.js <<'JS'
+          const fs = require('fs');
+          const path = require('path');
+          const PizZip = require('pizzip');
+          const Docxtemplater = require('docxtemplater');
+          const mammoth = require('mammoth');
+
+          (async () => {
+            const tplPath = path.join('template','po-noban.template.fixed.docx');
+            if (!fs.existsSync(tplPath)) {
+              console.warn('Fixed template not found; skipping smoke test:', tplPath);
+              process.exit(0);
+            }
+
+            const tpl = fs.readFileSync(tplPath);
+            const data = JSON.parse(fs.readFileSync(path.join('tests','smoke_data.json'),'utf8'));
+
+            const zip = new PizZip(tpl);
+            const doc = new Docxtemplater(zip, {
+              paragraphLoop: true,
+              linebreaks: true,
+              errorLogging: true,
+              delimiters: { start: '{{', end: '}}' },
+              nullGetter(){ return ''; }
+            });
+
+            try {
+              doc.render(data);
+            } catch (e) {
+              console.error('Docxtemplater render error:', e && e.message || e);
+              process.exit(1);
+            }
+
+            const out = doc.getZip().generate({type:'nodebuffer'});
+            fs.mkdirSync('dist', { recursive: true });
+            fs.writeFileSync(path.join('dist','smoke-output.docx'), out);
+
+            const html = await mammoth.convertToHtml({buffer: out});
+            if (/{{[^{}]+}}/.test(html.value)) {
+              console.error('Leftover {{tag}} tokens found in HTML preview');
+              process.exit(1);
+            }
+            console.log('Smoke test OK');
+          })();
+          JS
+          node tests/smoke_test.js
+
+      - name: Commit changes back (only if anything changed)
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --staged --quiet; then
+            git commit -m "Fix/vendor/test: local libs + normalized template [skip ci]"
+            git push
+          else
+            echo "No repo changes to commit."
+          fi
+
+      - name: Upload site for Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: fix_vendor_test
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
