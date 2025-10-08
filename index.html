@@ -5,11 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dana — PO/Contract Wizard (v5.5)</title>
 
- <!-- libs (LOCAL copies; no CDN dependency) -->
-<script src="./libs/pizzip.min.js"></script>
-<script src="./libs/pizzip-utils.min.js"></script>
-<script src="./libs/docxtemplater.js"></script>
-<script src="./libs/mammoth.browser.min.js"></script>
+  <!-- libs (LOCAL copies; no CDN dependency) -->
+  <script src="./libs/pizzip.min.js"></script>
+  <script src="./libs/docxtemplater.js"></script>
+  <script src="./libs/mammoth.browser.min.js"></script>
+  <script src="./libs/pizzip-utils.min.js"></script>
+  <script src="./libs/FileSaver.min.js"></script>
 <script>
   function getDocxCtor() {
     return window.docxtemplater || null;
@@ -33,22 +34,15 @@
     if (!window.mammoth) throw new Error('کتابخانه Mammoth بارگذاری نشد.');
   }
 </script>
-<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
   <!-- Supabase for optional backend integration (requires window.SUPABASE_URL & window.SUPABASE_KEY) -->
-  <!-- Dynamically load the Supabase library only when keys are provided. If the CDN fails or keys are absent, fall back to offline mode. -->
+  <!-- Supabase must be provided locally; we no longer fetch it from a CDN. -->
   <script>
     (function () {
       const url = (window.SUPABASE_URL || '').trim();
       const key = (window.SUPABASE_KEY || '').trim();
-      if (url && key) {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js';
-        s.async = true;
-        s.onerror = () => {
-          console.warn('Supabase CDN failed to load — running in offline mode.');
-        };
-        document.head.appendChild(s);
-      } else {
+      if (url && key && !window.supabase) {
+        console.warn('Supabase keys detected but no local Supabase bundle found — running in offline mode.');
+      } else if (!url || !key) {
         console.info('Supabase keys not provided — running in offline/localStorage mode.');
       }
     })();
