@@ -2132,7 +2132,7 @@ document.getElementById('goP').addEventListener('click', async () => {
   computeDerived();
   try {
     $('preview').innerHTML = '<div class="welcome"><div class="loading"></div><p>در حال تولید پیش‌نمایش...</p></div>';
-    await doPreview();
+    await window.doPreview();
     showStage('p');
   } catch (err) {
     // Show a friendly error in the preview error box
@@ -2163,8 +2163,9 @@ async function composeDocxBlob() {
     doc = new Docx(zip, {
       paragraphLoop: true,
       linebreaks: true,
-      nullGetter() { return ''; },
-      delimiters: { start: '{{', end: '}}' }
+      nullGetter(){ return ''; },
+      delimiters: { start: '{{', end: '}}' },
+      errorLogging: true
     });
   } catch (e) {
     throw new Error('ایجاد Docxtemplater ناموفق: ' + (e?.message || e));
@@ -2195,7 +2196,7 @@ async function composeDocxBlob() {
 async function doPreview() {
   await waitDocxLibs();
   await waitMammoth();
-  const blob = await composeDocxBlob();
+  const blob = await window.composeDocxBlob();
   const arrayBuffer = await blob.arrayBuffer();
   const { value: html } = await window.mammoth.convertToHtml({ arrayBuffer });
   document.getElementById('preview').innerHTML = html;
@@ -2310,7 +2311,7 @@ document.getElementById('downloadDocx').addEventListener('click', async () => {
     btn.innerHTML = '<div class="loading"></div> در حال تولید...';
     btn.disabled = true;
     
-    const blob = await composeDocxBlob();
+    const blob = await window.composeDocxBlob();
     saveAs(blob, 'po-noban.docx');
     
     btn.innerHTML = originalText;
@@ -2815,7 +2816,7 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
       }
       try {
         // generate docx blob from current state
-        const blob = await composeDocxBlob();
+        const blob = await window.composeDocxBlob();
         const data = currentPayload();
         await POWizardAPI.savePoRecord({ meta: data.meta, items: data.items, attachments: data.attachments, clauses: data.clauses, fileBlob: blob });
         alert('سفارش ذخیره شد.');
@@ -3081,8 +3082,9 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
     const doc = new Docx(zip, {
       paragraphLoop: true,
       linebreaks: true,
-      nullGetter() { return ''; }, // tolerate missing tags to avoid Multi error
-      delimiters: { start: '{{', end: '}}' }
+      nullGetter(){ return ''; },
+      delimiters: { start: '{{', end: '}}' },
+      errorLogging: true
     });
 
     const data = buildDocxDataSafe();
@@ -3107,7 +3109,7 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
   async function doPreviewPatched() {
     try {
       await waitMammoth();
-      const blob = await composeDocxBlob();
+      const blob = await composeDocxBlobPatched();
       const arrayBuffer = await blob.arrayBuffer();
       if (!window.mammoth) throw new Error('کتابخانه Mammoth بارگذاری نشد.');
       const { value: html } = await window.mammoth.convertToHtml({ arrayBuffer });
@@ -3126,7 +3128,7 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
   // Safe download
   window.downloadDocx = async function () {
     try {
-      const blob = await composeDocxBlob();
+      const blob = await composeDocxBlobPatched();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
