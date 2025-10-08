@@ -112,26 +112,28 @@ jobs:
 
             // Append safe composer wrapper once
             if (!/composeDocxBlobPatched/.test(html)) {
-              html += `
-<!-- patched composer -->
-<script>
-window.composeDocxBlob = async function (arrayBuffer, data){
-  const zip = new PizZip(arrayBuffer);
-  const doc = new docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true,
-    errorLogging: true,
-    delimiters: { start: '{{', end: '}}' },
-    nullGetter(){ return '' }
-  });
-  doc.render(data || {});
-  return doc.getZip().generate({
-    type: 'blob',
-    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  });
-};
-window.composeDocxBlobPatched = window.composeDocxBlob;
-</script>`;
+              html += [
+                '',
+                '<!-- patched composer -->',
+                '<script>',
+                'window.composeDocxBlob = async function (arrayBuffer, data){',
+                '  const zip = new PizZip(arrayBuffer);',
+                '  const doc = new docxtemplater(zip, {',
+                "    paragraphLoop: true,",
+                "    linebreaks: true,",
+                "    errorLogging: true,",
+                "    delimiters: { start: '{{', end: '}}' },",
+                "    nullGetter(){ return '' }",
+                '  });',
+                '  doc.render(data || {});',
+                '  return doc.getZip().generate({',
+                "    type: 'blob',",
+                "    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'",
+                '  });',
+                '};',
+                'window.composeDocxBlobPatched = window.composeDocxBlob;',
+                '</script>'
+              ].join('\n');
             }
 
             fs.writeFileSync(path, html, 'utf8');
