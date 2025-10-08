@@ -1635,6 +1635,9 @@ document.getElementById('back5').addEventListener('click', () => showStage('4'))
 /* ---------- state ---------- */
 function $(id) { return document.getElementById(id) }
 const CURRENCY_FA = {IRR: 'ریال', USD: 'دلار آمریکا', EUR: 'یورو', AED: 'درهم'};
+const TEMPLATE_NAME = 'po-noban.template.docx';
+const TEMPLATE_PATH = `template/${TEMPLATE_NAME}`;
+
 const state = {
   template: 'po-noban',
   templateFile: null,
@@ -2214,9 +2217,9 @@ async function getTemplateArrayBuffer() {
   const pathname = location.pathname;
   const base = pathname.endsWith('/') ? pathname : pathname.replace(/[^\/]*$/, '');
   const candidates = [
-    `${base}template/po-noban.template.docx`,
-    `template/po-noban.template.docx`,
-    `./template/po-noban.template.docx`
+    `${base}${TEMPLATE_PATH}`,
+    TEMPLATE_PATH,
+    `./${TEMPLATE_PATH}`
   ];
   let lastErr;
   for (const url of candidates) {
@@ -2961,9 +2964,9 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
   async function fetchTemplateArrayBuffer() {
     const candidates = [
       // explicit Pages base
-      new URL('./template/po-noban.template.docx', location.href).toString(),
-      './template/po-noban.template.docx',
-      '/dana-po-wizard/template/po-noban.template.docx'
+      new URL(`./${TEMPLATE_PATH}`, location.href).toString(),
+      `./${TEMPLATE_PATH}`,
+      `/dana-po-wizard/${TEMPLATE_PATH}`
     ];
     let lastErr = null;
     for (const href of candidates) {
