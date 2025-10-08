@@ -2181,7 +2181,11 @@ async function composeDocxBlob() {
 
   let doc;
   try {
-    doc = new Docx(zip, { paragraphLoop: true, linebreaks: true });
+    doc = new Docx(zip, {
+      paragraphLoop: true,
+      linebreaks: true,
+      nullGetter() { return ''; }
+    });
   } catch (e) {
     throw new Error('ایجاد Docxtemplater ناموفق: ' + (e?.message || e));
   }
@@ -2246,106 +2250,76 @@ async function getTemplateArrayBuffer() {
 }
 
 function buildDocxData() {
-  const m = state.meta;
-    // compute derived fields
-    const triggerRaw = (m.leadtimeTrigger || '').toString().trim();
-    const leadtimeTriggerText = triggerRaw || 'انعقاد قرارداد';
-    // convert amount to Persian words if not already computed
-    function numberToWordsFa(num) {
-      // Simple converter for Persian numbers up to billions
-      const ones = ['','یک','دو','سه','چهار','پنج','شش','هفت','هشت','نه'];
-      const tens = ['','ده','بیست','سی','چهل','پنجاه','شصت','هفتاد','هشتاد','نود'];
-      const teens = ['ده','یازده','دوازده','سیزده','چهارده','پانزده','شانزده','هفده','هجده','نوزده'];
-      const hundreds = ['','صد','دویست','سیصد','چهارصد','پانصد','ششصد','هفتصد','هشتصد','نهصد'];
-      const thousands = ['', 'هزار', 'میلیون', 'میلیارد'];
-      if (!num || isNaN(num)) return '';
-      let parts = [];
-      const digits = num.toString().split('').reverse().join('');
-      const chunks = [];
-      for (let i = 0; i < digits.length; i += 3) {
-        chunks.push(digits.substr(i, 3).split('').reverse().join(''));
-      }
-      chunks.forEach((chunk, idx) => {
-        let n = parseInt(chunk, 10);
-        if (n === 0) return;
-        let section = [];
-        const c = Math.floor(n / 100);
-        const t = Math.floor((n % 100) / 10);
-        const o = n % 10;
-        if (c) section.push(hundreds[c]);
-        if (t > 1) {
-          section.push(tens[t]);
-          if (o) section.push(ones[o]);
-        } else if (t === 1) {
-          section.push(teens[o]);
-        } else if (o) {
-          section.push(ones[o]);
-        }
-        const suffix = thousands[idx] || '';
-        if (suffix) section.push(suffix);
-        parts.unshift(section.join(' و '));
-      });
-      return parts.join(' و ');
-    }
-    const amountNumber = Number(m.amount || 0);
-    // Use global converter for amount words to avoid duplicate implementations
-    const amountWords = m.amountWords || (amountNumber ? (window.numToFaWords ? window.numToFaWords(amountNumber) : '') : '');
-    const fxSettlementText = m.fxSettlement
-      ? `تمامی پرداخت‌های قرارداد به صورت ریالی، براساس نرخ فروش اسکناسِ اعلامی در ${m.fxRateSourceLabel || ''} در روزِ کاریِ پیش از روزِ پرداخت انجام خواهد پذیرفت.`
-      : 'تمامی پرداخت‌های قرارداد به صورت ریالی انجام خواهد شد.';
-    // Compute issue date output based on calendar type
-    const issueDateOut = (m.calendarType === 'jalali' && m.issueDateJalali) ? m.issueDateJalali : (m.issueDate || '');
-    return {
-      poNumber: m.poNumber || '',
-      issueDate: m.issueDate || '',
-      subject: m.subject || '',
-      projectName: m.projectName || '',
-      manufacturerName: m.manufacturerName || '',
-      manufacturerCountry: m.manufacturerCountry || '',
-      amount: Number(m.amount || 0).toLocaleString('en-US'),
-      amountWords,
-      currencyFa: m.currencyFa,
-      items: state.items.map((r, i) => ({
-        idx: i + 1,
-        spec: r.spec || '',
-        unit: r.unit || '',
-        qty: r.qty || '',
-        unitPrice: r.unitPrice || '',
-        lineTotal: (r.lineTotal || 0).toLocaleString('en-US')
-      })),
-      totalNet: (state.meta.totalNet || 0).toLocaleString('en-US'),
-      deliveryDeadlineDays: m.deliveryDeadlineDays || '',
-      // original field, still passed for backward compatibility
-      leadtimeTrigger: m.leadtimeTrigger || '',
-      leadtimeTriggerText,
-      allowBuyerRep: !!m.allowBuyerRep,
-      hasWarranty: !!m.hasWarranty,
-      warrantyMonths: m.warrantyMonths || '',
-      fxSettlement: !!m.fxSettlement,
-      fxRateSourceLabel: m.fxRateSourceLabel || '',
-      fxSettlementText,
-      offerNumber: m.offerNumber || '',
-      offerDate: m.offerDate || '',
-      attachments: state.attachments.map(a => ({
-        title: a.title || '',
-        number: a.number || '',
-        date: a.date || ''
-      })),
-      partial: state.clauses.partial,
-      delivery: state.clauses.delivery,
-      term: state.clauses.term,
-      hasKaveh: !!m.hasKaveh,
-      isSingleSigner: !!m.isSingleSigner
-      ,
-      // Additional fields for enhanced template
-      deadlineType: m.deadlineType || '',
-      incoterms: m.incoterms || '',
-      calendarType: m.calendarType || 'gregorian',
-      issueDateJalali: m.issueDateJalali || '',
-      issueDateOut,
-      deliveryDocs: (state.meta.deliveryDocs || m.deliveryDocs || []),
-      supplierSignatories: (state.supplierSignatories || [])
-    };
+  const meta = state.meta || {};
+  const itemsSrc = Array.isArray(state.items) ? state.items : [];
+  const attachmentsSrc = Array.isArray(state.attachments) ? state.attachments : [];
+  const clauses = state.clauses || {};
+
+  const formatNumber = (value) => {
+    if (value === null || value === undefined || value === '') return '';
+    const num = Number(value);
+    return Number.isFinite(num) ? num.toLocaleString('en-US') : (value || '');
+  };
+
+  const leadtimeTriggerText = (meta.leadtimeTrigger || '').toString().trim() || 'انعقاد قرارداد';
+  const issueDateOut = (meta.calendarType === 'jalali' && meta.issueDateJalali) ? meta.issueDateJalali : (meta.issueDate || '');
+  const fxSettlementText = meta.fxSettlement
+    ? `تمامی پرداخت‌های قرارداد به صورت ریالی، براساس نرخ فروش اسکناسِ اعلامی در ${meta.fxRateSourceLabel || ''} در روزِ کاریِ پیش از روزِ پرداخت انجام خواهد پذیرفت.`
+    : 'تمامی پرداخت‌های قرارداد به صورت ریالی انجام خواهد شد.';
+
+  const amountNumber = Number(meta.amount);
+  const hasAmountNumber = meta.amount !== '' && meta.amount !== null && Number.isFinite(amountNumber);
+  const amount = hasAmountNumber ? amountNumber.toLocaleString('en-US') : (meta.amount || '');
+  const amountWords = meta.amountWords || (hasAmountNumber ? (window.numToFaWords ? window.numToFaWords(amountNumber) : '') : '');
+
+  return {
+    poNumber: meta.poNumber || '',
+    issueDate: meta.issueDate || '',
+    issueDateOut,
+    subject: meta.subject || '',
+    projectName: meta.projectName || '',
+    manufacturerName: meta.manufacturerName || '',
+    manufacturerCountry: meta.manufacturerCountry || '',
+    amount,
+    amountWords,
+    currencyFa: meta.currencyFa || '',
+    items: itemsSrc.map((r, i) => ({
+      idx: i + 1,
+      spec: r?.spec || '',
+      unit: r?.unit || '',
+      qty: r?.qty || '',
+      unitPrice: r?.unitPrice || '',
+      lineTotal: formatNumber(r?.lineTotal)
+    })),
+    totalNet: formatNumber(meta.totalNet ?? meta.amount),
+    deliveryDeadlineDays: meta.deliveryDeadlineDays || meta.deliveryDays || '',
+    leadtimeTrigger: meta.leadtimeTrigger || '',
+    leadtimeTriggerText,
+    allowBuyerRep: !!meta.allowBuyerRep,
+    hasWarranty: !!meta.hasWarranty,
+    warrantyMonths: meta.warrantyMonths || '',
+    fxSettlement: !!meta.fxSettlement,
+    fxRateSourceLabel: meta.fxRateSourceLabel || '',
+    fxSettlementText,
+    offerNumber: meta.offerNumber || '',
+    offerDate: meta.offerDate || '',
+    attachments: attachmentsSrc.map(a => ({
+      title: a?.title || '',
+      number: a?.number || '',
+      date: a?.date || ''
+    })),
+    deliveryDocs: Array.isArray(meta.deliveryDocs) ? meta.deliveryDocs : [],
+    supplierSignatories: Array.isArray(state.supplierSignatories) ? state.supplierSignatories : [],
+    partial: clauses.partial,
+    delivery: clauses.delivery,
+    term: clauses.term,
+    hasKaveh: !!meta.hasKaveh,
+    isSingleSigner: !!meta.isSingleSigner,
+    deadlineType: meta.deadlineType || '',
+    incoterms: meta.incoterms || '',
+    calendarType: meta.calendarType || 'gregorian',
+    issueDateJalali: meta.issueDateJalali || ''
+  };
 }
 
 /* ---------- preview & download handlers ---------- */
@@ -3043,29 +3017,42 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
     try {
       const st = window.state || {};
       const meta = st.meta || {};
-      const items = (st.items || []).map((r, i) => ({
+      const formatNumber = (value) => {
+        if (value === null || value === undefined || value === '') return '';
+        const num = Number(value);
+        return Number.isFinite(num) ? num.toLocaleString('en-US') : (value || '');
+      };
+
+      const items = (Array.isArray(st.items) ? st.items : []).map((r, i) => ({
         idx: (i+1).toString(),
         spec: r.spec || '',
         unit: r.unit || '',
         qty: (r.qty ?? '') + '',
         unitPrice: (r.unitPrice ?? '') + '',
-        lineTotal: (r.lineTotal ?? '') + ''
+        lineTotal: formatNumber(r.lineTotal)
       }));
       // Derived
       const issueDateOut = (meta.calendarType === 'jalali' && meta.issueDateJalali) ? meta.issueDateJalali : (meta.issueDate || '');
       const leadtimeTriggerText = meta.leadtimeTrigger || 'انعقاد قرارداد';
-      const totalNet = (st.totals && st.totals.gross) ? Number(st.totals.gross).toLocaleString('en-US') : (meta.amount ? Number(meta.amount).toLocaleString('en-US') : '');
+      const totalNet = formatNumber((st.totals && st.totals.gross) ?? meta.totalNet ?? meta.amount);
       // Arrays used by optional template loops
-      const attachments = (st.attachments || []).map(a => ({
+      const attachments = (Array.isArray(st.attachments) ? st.attachments : []).map(a => ({
         title: a.title || '',
         number: a.number || '',
         date: a.date || ''
       }));
       const deliveryDocs = Array.isArray(meta.deliveryDocs) ? meta.deliveryDocs : [];
       const supplierSignatories = Array.isArray(st.supplierSignatories) ? st.supplierSignatories : [];
+      const fxSettlementText = meta.fxSettlement
+        ? `تمامی پرداخت‌های قرارداد به صورت ریالی، براساس نرخ فروش اسکناسِ اعلامی در ${meta.fxRateSourceLabel || ''} در روزِ کاریِ پیش از روزِ پرداخت انجام خواهد پذیرفت.`
+        : 'تمامی پرداخت‌های قرارداد به صورت ریالی انجام خواهد شد.';
+      const clauses = st.clauses || {};
+      const amountNumber = Number(meta.amount);
+      const hasAmountNumber = meta.amount !== '' && meta.amount !== null && Number.isFinite(amountNumber);
+      const amount = hasAmountNumber ? amountNumber.toLocaleString('en-US') : (meta.amount || '');
 
       // Words
-      const amountWords = (meta.amount && window.numToFaWords) ? window.numToFaWords(Number(meta.amount)) : (meta.amountWords || '');
+      const amountWords = meta.amountWords || (hasAmountNumber && window.numToFaWords ? window.numToFaWords(amountNumber) : '');
 
       const out = {
         // Core
@@ -3074,15 +3061,15 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
         poNumber: meta.poNumber || '',
         issueDate: meta.issueDate || '',
         issueDateOut,
-        calendarType: meta.calendarType || '',
+        calendarType: meta.calendarType || 'gregorian',
         currencyFa: meta.currencyFa || '',
-        amount: meta.amount ? Number(meta.amount).toLocaleString('en-US') : '',
+        amount,
         amountWords,
         manufacturerCountry: meta.manufacturerCountry || '',
         manufacturerName: meta.manufacturerName || '',
-        partial: (meta.partial ? 'بله' : 'خیر'),
-        delivery: meta.delivery || '',
-        term: meta.term || '',
+        partial: clauses.partial,
+        delivery: clauses.delivery,
+        term: clauses.term,
         // Delivery deadline
         deliveryDeadlineDays: meta.deliveryDeadlineDays || meta.deliveryDays || '',
         leadtimeTrigger: meta.leadtimeTrigger || '',
@@ -3094,6 +3081,7 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
         // FX
         fxSettlement: !!meta.fxSettlement,
         fxRateSourceLabel: meta.fxRateSourceLabel || '',
+        fxSettlementText,
         // Totals + items
         totalNet,
         items,
@@ -3101,6 +3089,8 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
         attachments,
         deliveryDocs,
         supplierSignatories,
+        hasKaveh: !!meta.hasKaveh,
+        isSingleSigner: !!meta.isSingleSigner,
         // Misc (keep template tolerant)
         incoterms: meta.incoterms || '',
         deadlineType: meta.deadlineType || '',
