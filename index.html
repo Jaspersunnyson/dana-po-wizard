@@ -6,39 +6,25 @@
   <title>Dana — PO/Contract Wizard (v5.5)</title>
 
  <!-- libs (LOCAL copies; no CDN dependency) -->
-<script src="./vendor/pizzip-3.1.7.min.js"></script>
-<script src="./vendor/pizzip-utils-3.1.7.min.js"></script>
+<script src="./libs/pizzip.min.js"></script>
+<script src="./libs/pizzip-utils.min.js"></script>
+<script src="./libs/docxtemplater.js"></script>
+<script src="./libs/mammoth.browser.min.js"></script>
 <script>
-  (function loadDocxtemplater() {
-    function inject(src, onload) {
-      var s = document.createElement('script');
-      s.src = src;
-      s.onload = function () { onload(true); };
-      s.onerror = function () { onload(false); };
-      document.head.appendChild(s);
-    }
-    inject('./vendor/docxtemplater-3.39.0.js', function (ok) {
-      if (ok) return;
-      inject('https://cdn.jsdelivr.net/npm/docxtemplater@3.39.0/build/docxtemplater.js', function () {
-        console.warn('Loaded Docxtemplater via CDN fallback');
-      });
-    });
-  })();
-</script>
-<script src="./vendor/mammoth.browser.min.js"></script>
-<script>
-  async function waitDocxLibs() {
-    const ready = () => (window.PizZip &&
-      (window.docxtemplater?.default ||
-       window.docxtemplater ||
-       window.Docxtemplater));
-    for (let i = 0; i < 100 && !ready(); i++) {
-      await new Promise(r => setTimeout(r, 100));
-    }
-    if (!ready()) throw new Error('کتابخانه‌های Docxtemplater/PizZip بارگذاری نشدند.');
-  }
   function getDocxCtor() {
-    return window.docxtemplater?.default || window.docxtemplater || window.Docxtemplater;
+    return window.docxtemplater || null;
+  }
+  function getZipCtor() {
+    return window.PizZip || null;
+  }
+  async function waitDocxLibs() {
+    const t0 = performance.now();
+    while (!(getZipCtor() && getDocxCtor())) {
+      if (performance.now() - t0 > 8000) {
+        throw new Error('کتابخانه‌های Docxtemplater/PizZip بارگذاری نشدند.');
+      }
+      await new Promise(r => setTimeout(r, 50));
+    }
   }
   async function waitMammoth() {
     for (let i = 0; i < 100 && !window.mammoth; i++) {
@@ -2172,7 +2158,6 @@ document.getElementById('goP').addEventListener('click', async () => {
 /* Override composeDocxBlob to rely on local libs with fallback */
 async function composeDocxBlob() {
   await waitDocxLibs();
-
   const ab = await getTemplateArrayBuffer();
   const zip = new PizZip(ab);
 
@@ -2945,30 +2930,15 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
   // Safe DOM helper
   const $ = (id) => document.getElementById(id);
 
-  // Wait for external libs (Docxtemplater, PizZip, Mammoth)
+  // Wait for Docxtemplater + PizZip to be present
   async function waitForLibs() {
-    let tries = 0;
-    function hasDocx() {
-      return !!(window.Docxtemplater || (window.docxtemplater && (window.docxtemplater.default || window.docxtemplater)));
+    const t0 = performance.now();
+    while (!(getDocxCtor() && getZipCtor())) {
+      if (performance.now() - t0 > 8000) {
+        throw new Error('کتابخانه‌ها بارگذاری نشدند');
+      }
+      await new Promise(r => setTimeout(r, 50));
     }
-    function hasZip() { return !!(window.PizZip || windowJSZip()); }
-    function hasMammoth() { return !!(window.mammoth); }
-    function windowJSZip(){ return window.JSZip || window.jszip; }
-    while (!(hasDocx() && hasZip() && hasMammoth()) && tries < 100) {
-      await new Promise(r => setTimeout(r, 100));
-      tries++;
-    }
-    if (!hasDocx()) throw new Error('کتابخانه docxtemplater بارگذاری نشد.');
-    if (!hasZip()) throw new Error('کتابخانه PizZip/JSZip بارگذاری نشد.');
-    if (!hasMammoth()) throw new Error('کتابخانه Mammoth بارگذاری نشد.');
-  }
-
-  function getDocxCtor() {
-    return window.Docxtemplater || (window.docxtemplater && (window.docxtemplater.default || window.docxtemplater)) || null;
-  }
-
-  function getZipCtor() {
-    return window.PizZip || window.JSZip || window.jszip || null;
   }
 
   // More helpful error presentation (in Persian)
@@ -3126,7 +3096,6 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
     try {
       doc.render();
     } catch (err) {
-      // surface detailed errors but still throw to caller
       showDocxError(err);
       throw err;
     }
@@ -3143,7 +3112,8 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
 
   async function doPreviewPatched() {
     try {
-      const blob = await composeDocxBlobPatched();
+      await waitMammoth();
+      const blob = await composeDocxBlob();
       const arrayBuffer = await blob.arrayBuffer();
       if (!window.mammoth) throw new Error('کتابخانه Mammoth بارگذاری نشد.');
       const { value: html } = await window.mammoth.convertToHtml({ arrayBuffer });
@@ -3162,7 +3132,7 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
   // Safe download
   window.downloadDocx = async function () {
     try {
-      const blob = await composeDocxBlobPatched();
+      const blob = await composeDocxBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
