@@ -52,8 +52,9 @@ jobs:
           
           # Download with error checking
           curl -fSL https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip.min.js -o libs/pizzip.min.js
+          curl -fSL https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip-utils.min.js -o libs/pizzip-utils.min.js
           curl -fSL https://unpkg.com/docxtemplater@3.66.6/build/docxtemplater.js -o libs/docxtemplater.js
-          curl -fSL https://unpkg.com/mammoth@1.11.0/mammoth.browser.min.js -o libs/mammoth.browser.min.js
+          curl -fSL https://unpkg.com/mammoth@1.11.0/dist/mammoth.browser.min.js -o libs/mammoth.browser.min.js
           
           # Create versions file
           cat > libs/versions.json <<EOF
@@ -182,6 +183,7 @@ jobs:
           chmod +x scripts/normalize_docx.py
 
       - name: Normalize DOCX templates
+        if: false  # Disabled - RTL text in templates causes normalization issues
         run: |
           set -e
           echo "🔧 Normalizing DOCX templates..."
@@ -193,6 +195,21 @@ jobs:
             ls -lh template/*.fixed.docx
           else
             echo "ℹ️  No templates were normalized (already in correct format or none found)"
+          fi
+          
+      - name: Copy templates without normalization
+        run: |
+          set -e
+          echo "ℹ️  Skipping normalization due to RTL text - using original templates"
+          # Create .fixed.docx copies for compatibility
+          if [ -d "template" ]; then
+            for docx in template/*.docx; do
+              if [[ ! "$docx" =~ \.fixed\.docx$ ]]; then
+                base=$(basename "$docx" .docx)
+                cp "$docx" "template/${base}.fixed.docx"
+                echo "✅ Copied: $docx → template/${base}.fixed.docx"
+              fi
+            done
           fi
 
       # ===== STEP 3: Patch index.html =====
@@ -227,6 +244,7 @@ jobs:
             if (!html.includes('libs/pizzip.min.js')) {
               const libScripts = `
             <script src="libs/pizzip.min.js"></script>
+            <script src="libs/pizzip-utils.min.js"></script>
             <script src="libs/docxtemplater.js"></script>
             <script src="libs/mammoth.browser.min.js"></script>`;
               
