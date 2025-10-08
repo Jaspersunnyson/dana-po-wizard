@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---------- Vendor libs to /libs (no CDN at runtime) ----------
+      # 1) Vendor libs to /libs (no CDN at runtime)
       - name: Vendor browser libs
         run: |
           set -e
@@ -29,7 +29,7 @@ jobs:
           printf '{\n  "docxtemplater": "3.66.6",\n  "pizzip": "3.2.0",\n  "mammoth": "1.11.0",\n  "updated_at": "%s"\n}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > libs/versions.json
           ls -l libs
 
-      # ---------- Normalize DOCX section tags to {{#}}/{{/}}/{{^}} ----------
+      # 2) Normalize DOCX section tags to {{#}}/{{/}}/{{^}}
       - name: Create tag-normalizer script
         run: |
           set -e
@@ -73,12 +73,13 @@ jobs:
             echo "No template directory found. Skipping normalization."
           fi
 
-      # ---------- Patch index.html using actions/github-script (no shell quoting) ----------
+      # 3) Patch index.html using GitHub Script (no fragile quoting)
       - name: Patch index.html (local libs + fixed template + safe composer)
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
+            const core = require('@actions/core');
             const path = 'index.html';
             if (!fs.existsSync(path)) {
               core.setFailed('index.html not found at repo root');
@@ -86,10 +87,10 @@ jobs:
             }
             let html = fs.readFileSync(path, 'utf8');
 
-            // 1) Remove CDN script tags for the libs (if any)
-            html = html.replace(/<script[^>]+(unpkg|jsdelivr)[^>]*>(<\/script>)?/gi, '');
+            // Remove any CDN script tags for these libs
+            html = html.replace(/<script[^>]+(unpkg|jsdelivr)[^>]*>\s*<\/script>/gi, '');
 
-            // 2) Ensure local libs are included right after <head>
+            // Ensure local libs after <head>
             if (!/libs\/pizzip\.min\.js/.test(html)) {
               html = html.replace(/<head[^>]*>/i, (m) =>
                 m +
@@ -100,10 +101,10 @@ jobs:
               );
             }
 
-            // 3) Switch template reference to normalized .fixed.docx
+            // Switch template to normalized file
             html = html.replace(/po-noban\.template\.docx/g, 'po-noban.template.fixed.docx');
 
-            // 4) Append safe composer wrapper once
+            // Append safe composer wrapper once
             if (!/composeDocxBlobPatched/.test(html)) {
               html += `
 <!-- patched composer -->
@@ -123,12 +124,13 @@ window.composeDocxBlob = async function (arrayBuffer, data){
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   });
 };
+window.composeDocxBlobPatched = window.composeDocxBlob;
 </script>`;
             }
 
             fs.writeFileSync(path, html, 'utf8');
 
-      # ---------- Smoke data ----------
+      # 4) Smoke data
       - name: Add smoke-data
         run: |
           set -e
@@ -157,13 +159,13 @@ window.composeDocxBlob = async function (arrayBuffer, data){
           }
           JSON
 
-      # ---------- CI smoke test in Node (docs render + no leftover tags) ----------
-      - name: Setup Node for smoke test
+      # 5) CI smoke test (Node)
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '18'
 
-      - name: Install test deps (CI only)
+      - name: Install test deps
         run: |
           set -e
           npm init -y >/dev/null 2>&1
@@ -178,7 +180,6 @@ window.composeDocxBlob = async function (arrayBuffer, data){
           const PizZip = require('pizzip');
           const Docxtemplater = require('docxtemplater');
           const mammoth = require('mammoth');
-
           (async () => {
             const tplPath = path.join('template','po-noban.template.fixed.docx');
             if (!fs.existsSync(tplPath)) {
@@ -187,7 +188,6 @@ window.composeDocxBlob = async function (arrayBuffer, data){
             }
             const tpl = fs.readFileSync(tplPath);
             const data = JSON.parse(fs.readFileSync(path.join('tests','smoke_data.json'),'utf8'));
-
             const zip = new PizZip(tpl);
             const doc = new Docxtemplater(zip, {
               paragraphLoop: true,
@@ -196,14 +196,11 @@ window.composeDocxBlob = async function (arrayBuffer, data){
               delimiters: { start: '{{', end: '}}' },
               nullGetter(){ return ''; }
             });
-
             try { doc.render(data); }
             catch (e) { console.error('Docxtemplater render error:', e && e.message || e); process.exit(1); }
-
             const out = doc.getZip().generate({type:'nodebuffer'});
             fs.mkdirSync('dist', { recursive: true });
             fs.writeFileSync(path.join('dist','smoke-output.docx'), out);
-
             const html = await mammoth.convertToHtml({buffer: out});
             if (/{{[^{}]+}}/.test(html.value)) {
               console.error('Leftover {{tag}} tokens found in HTML preview');
@@ -214,8 +211,8 @@ window.composeDocxBlob = async function (arrayBuffer, data){
           JS
           node tests/smoke_test.js
 
-      # ---------- Commit changes back ----------
-      - name: Commit changes back (if anything changed)
+      # 6) Commit changes back (idempotent)
+      - name: Commit changes back
         run: |
           set -e
           git config user.name "github-actions[bot]"
@@ -228,7 +225,7 @@ window.composeDocxBlob = async function (arrayBuffer, data){
             echo "No repo changes to commit."
           fi
 
-      # ---------- Upload static site for Pages ----------
+      # 7) Upload for Pages
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
