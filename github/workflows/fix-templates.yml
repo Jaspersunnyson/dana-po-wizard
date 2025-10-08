@@ -1,0 +1,66 @@
+name: Normalize DOCX delimiters
+on:
+  push:
+    paths:
+      - '**/*.docx'
+      - 'scripts/**'
+      - '.github/workflows/fix-templates.yml'
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Add fixer script
+        run: |
+          mkdir -p scripts
+          cat > scripts/fix_docx_delimiters.py << 'PY'
+import zipfile, re, sys, os
+def fix_docx(src, dst):
+    pat_open = re.compile(r'(?<!\\{)\\{#([A-Za-z0-9_.-]+)\\}(?!\\})')
+    pat_close = re.compile(r'(?<!\\{)\\{\\/([A-Za-z0-9_.-]+)\\}(?!\\})')
+    pat_inv = re.compile(r'(?<!\\{)\\{\\^([A-Za-z0-9_.-]+)\\}(?!\\})')
+    with zipfile.ZipFile(src, 'r') as zin, zipfile.ZipFile(dst, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename.startswith("word/") and item.filename.endswith(".xml"):
+                try:
+                    text = data.decode('utf-8')
+                except Exception:
+                    text = data.decode('latin-1', errors='ignore')
+                text2 = pat_open.sub(r'{{#\\1}}', text)
+                text2 = pat_close.sub(r'{{/\\1}}', text2)
+                text2 = pat_inv.sub(r'{{^\\1}}', text2)
+                if text2 != text:
+                    data = text2.encode('utf-8')
+            zout.writestr(item, data)
+if __name__ == "__main__":
+    changed = False
+    for path in sys.argv[1:]:
+        base, ext = os.path.splitext(path)
+        out = base + ".fixed" + ext
+        fix_docx(path, out)
+        print("fixed:", out)
+        changed = True
+    sys.exit(0 if changed else 0)
+PY
+
+      - name: Fix any docx templates in repo root
+        run: |
+          python3 scripts/fix_docx_delimiters.py *.docx || true
+
+      - name: Commit fixed templates (if any)
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          if ls *.fixed.docx >/dev/null 2>&1; then
+            git add *.fixed.docx
+            git commit -m "chore: auto-normalize template delimiters to {{ }}"
+            git push
+          fi
