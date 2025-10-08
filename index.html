@@ -2184,7 +2184,8 @@ async function composeDocxBlob() {
     doc = new Docx(zip, {
       paragraphLoop: true,
       linebreaks: true,
-      nullGetter() { return ''; }
+      nullGetter() { return ''; },
+      delimiters: { start: '{{', end: '}}' }
     });
   } catch (e) {
     throw new Error('ایجاد Docxtemplater ناموفق: ' + (e?.message || e));
@@ -3109,13 +3110,17 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
     const Zip = getZipCtor();
     if (!Docx) throw new Error('ایجاد Docxtemplater ناموفق: کتابخانه در دسترس نیست');
     if (!Zip) throw new Error('JSZip/PizZip در دسترس نیست');
+
     const ab = await fetchTemplateArrayBuffer();
     const zip = new Zip(ab);
+
     const doc = new Docx(zip, {
       paragraphLoop: true,
       linebreaks: true,
-      nullGetter() { return ''; } // tolerate missing tags to avoid Multi error
+      nullGetter() { return ''; }, // tolerate missing tags to avoid Multi error
+      delimiters: { start: '{{', end: '}}' }
     });
+
     const data = buildDocxDataSafe();
     doc.setData(data);
     try {
@@ -3125,7 +3130,11 @@ document.getElementById('importJson').addEventListener('change', async (e) => {
       showDocxError(err);
       throw err;
     }
-    const out = doc.getZip().generate({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+
+    const out = doc.getZip().generate({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    });
     return out;
   }
 
