@@ -50,18 +50,25 @@ jobs:
           echo "📦 Downloading browser libraries..."
           mkdir -p libs
           
-          # Download with error checking
+          # Download with error checking and fallback URLs
+          echo "Downloading pizzip..."
           curl -fSL https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip.min.js -o libs/pizzip.min.js
+          
+          echo "Downloading pizzip-utils..."
           curl -fSL https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip-utils.min.js -o libs/pizzip-utils.min.js
+          
+          echo "Downloading docxtemplater..."
           curl -fSL https://unpkg.com/docxtemplater@3.66.6/build/docxtemplater.js -o libs/docxtemplater.js
-          curl -fSL https://unpkg.com/mammoth@1.11.0/dist/mammoth.browser.min.js -o libs/mammoth.browser.min.js
+          
+          echo "Downloading mammoth..."
+          curl -fSL https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js -o libs/mammoth.browser.min.js
           
           # Create versions file
           cat > libs/versions.json <<EOF
           {
             "docxtemplater": "3.66.6",
             "pizzip": "3.2.0",
-            "mammoth": "1.11.0",
+            "mammoth": "1.8.0",
             "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
@@ -306,7 +313,7 @@ jobs:
           npm install --no-save --no-audit --no-fund \
             docxtemplater@3.66.6 \
             pizzip@3.2.0 \
-            mammoth@1.11.0
+            mammoth@1.8.0
 
       - name: Create smoke test data
         run: |
