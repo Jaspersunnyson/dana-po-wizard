@@ -1,4 +1,4 @@
-name: Fix, Vendor, Test & Deploy
+name: PO Wizard — Fix, Vendor, Test & Deploy (robust)
 
 on:
   workflow_dispatch:
@@ -11,13 +11,14 @@ permissions:
   id-token: write
 
 jobs:
-  fix_vendor_test:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Vendor browser libs (no CDN at runtime)
+      # ---------- Vendor libs to /libs (no CDN at runtime) ----------
+      - name: Vendor browser libs
         run: |
           set -e
           mkdir -p libs
@@ -28,6 +29,7 @@ jobs:
           printf '{\n  "docxtemplater": "3.66.6",\n  "pizzip": "3.2.0",\n  "mammoth": "1.11.0",\n  "updated_at": "%s"\n}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > libs/versions.json
           ls -l libs
 
+      # ---------- Normalize DOCX section tags to {{#}}/{{/}}/{{^}} ----------
       - name: Create tag-normalizer script
         run: |
           set -e
@@ -36,36 +38,28 @@ jobs:
           #!/usr/bin/env python3
           import sys, zipfile, re, tempfile, shutil
           from pathlib import Path
-
           TAG_RX = re.compile(r"\{([#/\^])\s*([^{}]+?)\}")
-
           def fix_xml_text(txt: str) -> str:
               return TAG_RX.sub(lambda m: "{{%s%s}}" % (m.group(1), m.group(2).strip()), txt)
-
           def process_docx(path: Path) -> Path:
               fixed = path.with_name(f"{path.stem}.fixed{path.suffix}")
               tmpdir = Path(tempfile.mkdtemp(prefix="fixdocx_"))
               try:
-                  with zipfile.ZipFile(path, "r") as z:
-                      z.extractall(tmpdir)
+                  with zipfile.ZipFile(path, "r") as z: z.extractall(tmpdir)
                   for p in tmpdir.rglob("*.xml"):
                       p.write_text(fix_xml_text(p.read_text(encoding="utf-8")), encoding="utf-8")
                   with zipfile.ZipFile(fixed, "w", zipfile.ZIP_DEFLATED) as z:
                       for p in sorted(tmpdir.rglob("*")):
-                          if p.is_file():
-                              z.write(p, p.relative_to(tmpdir).as_posix())
+                          if p.is_file(): z.write(p, p.relative_to(tmpdir).as_posix())
                   return fixed
               finally:
                   shutil.rmtree(tmpdir, ignore_errors=True)
-
           def main():
               root = Path(sys.argv[1] if len(sys.argv) > 1 else "template")
               for docx in root.glob("*.docx"):
                   out = process_docx(docx)
                   print(f"fixed: {out}")
-
-          if __name__ == "__main__":
-              main()
+          if __name__ == "__main__": main()
           PY
           chmod +x scripts/fix_docx_tags.py
 
@@ -79,31 +73,63 @@ jobs:
             echo "No template directory found. Skipping normalization."
           fi
 
-      - name: Patch index.html (use local libs + fixed template)
-        run: |
-          set -e
-          echo "🔧 Patching index.html"
+      # ---------- Patch index.html using actions/github-script (no shell quoting) ----------
+      - name: Patch index.html (local libs + fixed template + safe composer)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'index.html';
+            if (!fs.existsSync(path)) {
+              core.setFailed('index.html not found at repo root');
+              return;
+            }
+            let html = fs.readFileSync(path, 'utf8');
 
-          # 1) Remove any CDN script tags for these libs
-          sed -i -E '/(unpkg|jsdelivr).*(docxtemplater|pizzip|mammoth)/d' index.html || true
+            // 1) Remove CDN script tags for the libs (if any)
+            html = html.replace(/<script[^>]+(unpkg|jsdelivr)[^>]*>(<\/script>)?/gi, '');
 
-          # 2) Insert local libs after <head> if missing
-          if ! grep -q 'libs/pizzip.min.js' index.html; then
-            sed -i '/<head[^>]*>/a \
-<script src="libs/pizzip.min.js"></script>\n<script src="libs/pizzip-utils.min.js"></script>\n<script src="libs/docxtemplater.js"></script>\n<script src="libs/mammoth.browser.min.js"></script>' index.html
-          fi
+            // 2) Ensure local libs are included right after <head>
+            if (!/libs\/pizzip\.min\.js/.test(html)) {
+              html = html.replace(/<head[^>]*>/i, (m) =>
+                m +
+                '\n<script src="libs/pizzip.min.js"></script>' +
+                '\n<script src="libs/pizzip-utils.min.js"></script>' +
+                '\n<script src="libs/docxtemplater.js"></script>' +
+                '\n<script src="libs/mammoth.browser.min.js"></script>'
+              );
+            }
 
-          # 3) Switch template reference to normalized fixed DOCX
-          sed -i 's/po-noban\.template\.docx/po-noban.template.fixed.docx/g' index.html
+            // 3) Switch template reference to normalized .fixed.docx
+            html = html.replace(/po-noban\.template\.docx/g, 'po-noban.template.fixed.docx');
 
-          # 4) Ensure composer safety wrapper exists (idempotent)
-          if ! grep -q 'composeDocxBlobPatched' index.html; then
-            printf '\n<!-- patched composer -->\n<script>\nwindow.composeDocxBlob = async function (arrayBuffer, data){\n  const zip = new PizZip(arrayBuffer);\n  const doc = new docxtemplater(zip, {\n    paragraphLoop:true,\n    linebreaks:true,\n    errorLogging:true,\n    delimiters:{start:\"{{\",end:\"}}\"},\n    nullGetter(){return \"\";}\n  });\n  doc.render(data||{});\n  return doc.getZip().generate({type:\"blob\",mimeType:\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\"});\n};\n</script>\n' >> index.html
-          fi
+            // 4) Append safe composer wrapper once
+            if (!/composeDocxBlobPatched/.test(html)) {
+              html += `
+<!-- patched composer -->
+<script>
+window.composeDocxBlob = async function (arrayBuffer, data){
+  const zip = new PizZip(arrayBuffer);
+  const doc = new docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks: true,
+    errorLogging: true,
+    delimiters: { start: '{{', end: '}}' },
+    nullGetter(){ return '' }
+  });
+  doc.render(data || {});
+  return doc.getZip().generate({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  });
+};
+</script>`;
+            }
 
-          echo "✅ index.html patched"
+            fs.writeFileSync(path, html, 'utf8');
 
-      - name: Add smoke-data (covers typical fields)
+      # ---------- Smoke data ----------
+      - name: Add smoke-data
         run: |
           set -e
           mkdir -p tests
@@ -131,6 +157,7 @@ jobs:
           }
           JSON
 
+      # ---------- CI smoke test in Node (docs render + no leftover tags) ----------
       - name: Setup Node for smoke test
         uses: actions/setup-node@v4
         with:
@@ -158,7 +185,6 @@ jobs:
               console.warn('Fixed template not found; skipping smoke test:', tplPath);
               process.exit(0);
             }
-
             const tpl = fs.readFileSync(tplPath);
             const data = JSON.parse(fs.readFileSync(path.join('tests','smoke_data.json'),'utf8'));
 
@@ -171,12 +197,8 @@ jobs:
               nullGetter(){ return ''; }
             });
 
-            try {
-              doc.render(data);
-            } catch (e) {
-              console.error('Docxtemplater render error:', e && e.message || e);
-              process.exit(1);
-            }
+            try { doc.render(data); }
+            catch (e) { console.error('Docxtemplater render error:', e && e.message || e); process.exit(1); }
 
             const out = doc.getZip().generate({type:'nodebuffer'});
             fs.mkdirSync('dist', { recursive: true });
@@ -192,27 +214,29 @@ jobs:
           JS
           node tests/smoke_test.js
 
-      - name: Commit changes back (only if anything changed)
+      # ---------- Commit changes back ----------
+      - name: Commit changes back (if anything changed)
         run: |
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if ! git diff --staged --quiet; then
-            git commit -m "Fix/vendor/test: local libs + normalized template [skip ci]"
+            git commit -m "PO Wizard: vendor local libs, normalize template, patch index.html, add smoke test"
             git push
           else
             echo "No repo changes to commit."
           fi
 
-      - name: Upload site for Pages
+      # ---------- Upload static site for Pages ----------
+      - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
 
   deploy:
     runs-on: ubuntu-latest
-    needs: fix_vendor_test
+    needs: build
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
