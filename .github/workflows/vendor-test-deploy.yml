@@ -82,57 +82,26 @@ jobs:
       - name: Patch index.html (use local libs + fixed template)
         run: |
           set -e
-          if [ ! -f "index.html" ]; then
-            echo "index.html not found at repo root" >&2
-            exit 1
-          fi
+          echo "🔧 Patching index.html"
 
-          # Remove any external CDN script tags for these libs
-          sed -i -E '/(unpkg|jsdelivr).*(docxtemplater|pizzip|mammoth)/Id' index.html || true
+          # 1) Remove any CDN script tags for these libs
+          sed -i -E '/(unpkg|jsdelivr).*(docxtemplater|pizzip|mammoth)/d' index.html || true
 
-          # Ensure local libs are loaded after <head>
+          # 2) Insert local libs after <head> if missing
           if ! grep -q 'libs/pizzip.min.js' index.html; then
             sed -i '/<head[^>]*>/a \
-            <script src="libs/pizzip.min.js"></script>\n\
-            <script src="libs/pizzip-utils.min.js"></script>\n\
-            <script src="libs/docxtemplater.js"></script>\n\
-            <script src="libs/mammoth.browser.min.js"></script>' index.html
+<script src="libs/pizzip.min.js"></script>\n<script src="libs/pizzip-utils.min.js"></script>\n<script src="libs/docxtemplater.js"></script>\n<script src="libs/mammoth.browser.min.js"></script>' index.html
           fi
 
-          # Switch template filename to the normalized one if original is referenced
+          # 3) Switch template reference to normalized fixed DOCX
           sed -i 's/po-noban\.template\.docx/po-noban.template.fixed.docx/g' index.html
 
-          # Append a safe composer wrapper once
+          # 4) Ensure composer safety wrapper exists (idempotent)
           if ! grep -q 'composeDocxBlobPatched' index.html; then
-            cat >> index.html <<'HTML'
-            <script>
-            (function(){
-              function ready(fn){ if(document.readyState!=='loading'){fn();} else {document.addEventListener('DOMContentLoaded',fn);} }
-              ready(function(){
-                if(!window.PizZip || !window.docxtemplater){
-                  console.warn('Doc libraries not loaded'); return;
-                }
-                window.composeDocxBlobPatched = async function (arrayBuffer, data){
-                  const zip = new window.PizZip(arrayBuffer);
-                  const doc = new window.docxtemplater(zip, {
-                    paragraphLoop: true,
-                    linebreaks: true,
-                    errorLogging: true,
-                    delimiters: { start: '{{', end: '}}' },
-                    nullGetter(){ return ''; }
-                  });
-                  doc.render(data || {});
-                  return doc.getZip().generate({
-                    type: 'blob',
-                    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                  });
-                };
-                window.composeDocxBlob = window.composeDocxBlobPatched;
-              });
-            })();
-            </script>
-            HTML
+            printf '\n<!-- patched composer -->\n<script>\nwindow.composeDocxBlob = async function (arrayBuffer, data){\n  const zip = new PizZip(arrayBuffer);\n  const doc = new docxtemplater(zip, {\n    paragraphLoop:true,\n    linebreaks:true,\n    errorLogging:true,\n    delimiters:{start:\"{{\",end:\"}}\"},\n    nullGetter(){return \"\";}\n  });\n  doc.render(data||{});\n  return doc.getZip().generate({type:\"blob\",mimeType:\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\"});\n};\n</script>\n' >> index.html
           fi
+
+          echo "✅ index.html patched"
 
       - name: Add smoke-data (covers typical fields)
         run: |
