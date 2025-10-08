@@ -1,0 +1,10 @@
+{
+  "name": "dana-po-wizard",
+  "version": "1.0.0",
+  "description": "Dana Energy Purchase Order/Contract Wizard",
+  "scripts": {
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "author": "",
+  "license": "MIT"
+}
