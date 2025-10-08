@@ -1,0 +1,458 @@
+name: PO Wizard - Build, Test & Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'template/**'
+      - 'index.html'
+      - 'api.js'
+      - '.github/workflows/consolidated-workflow.yml'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# Prevent concurrent deployments
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    # Skip if commit message contains [skip ci]
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # ===== STEP 1: Vendor Libraries =====
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Vendor browser libraries to libs/
+        run: |
+          set -e
+          echo "📦 Downloading browser libraries..."
+          mkdir -p libs
+          
+          # Download with error checking
+          curl -fSL https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip.min.js -o libs/pizzip.min.js
+          curl -fSL https://cdn.jsdelivr.net/npm/pizzip@3.2.0/dist/pizzip-utils.min.js -o libs/pizzip-utils.min.js
+          curl -fSL https://unpkg.com/docxtemplater@3.66.6/build/docxtemplater.js -o libs/docxtemplater.js
+          curl -fSL https://unpkg.com/mammoth@1.11.0/dist/mammoth.browser.min.js -o libs/mammoth.browser.min.js
+          
+          # Create versions file
+          cat > libs/versions.json <<EOF
+          {
+            "docxtemplater": "3.66.6",
+            "pizzip": "3.2.0",
+            "mammoth": "1.11.0",
+            "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          
+          echo "✅ Libraries vendored successfully"
+          ls -lh libs/
+
+      # ===== STEP 2: Normalize DOCX Templates =====
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Create DOCX normalizer script
+        run: |
+          set -e
+          mkdir -p scripts
+          cat > scripts/normalize_docx.py <<'PYTHON'
+          #!/usr/bin/env python3
+          """
+          Normalize DOCX template tags from {#tag} to {{#tag}}
+          Handles section tags: {#...}, {/...}, {^...}
+          """
+          import sys
+          import zipfile
+          import re
+          from pathlib import Path
+          import tempfile
+          import shutil
+
+          # Match {#tag}, {/tag}, {^tag} but not {{#tag}}
+          TAG_PATTERN = re.compile(
+              r'(?<!\{)\{([#/\^])\s*([A-Za-z0-9_.-]+)\s*\}(?!\})'
+          )
+
+          def normalize_xml_text(text: str) -> tuple[str, int]:
+              """Replace single-brace tags with double-brace tags."""
+              replacements = 0
+              
+              def replacer(match):
+                  nonlocal replacements
+                  replacements += 1
+                  operator = match.group(1)
+                  tag_name = match.group(2).strip()
+                  return f'{{{{{operator}{tag_name}}}}}'
+              
+              normalized = TAG_PATTERN.sub(replacer, text)
+              return normalized, replacements
+
+          def process_docx(input_path: Path) -> tuple[Path, int]:
+              """Process a DOCX file and return the fixed version."""
+              output_path = input_path.with_name(f"{input_path.stem}.fixed{input_path.suffix}")
+              total_replacements = 0
+              
+              # Create temp directory for extraction
+              temp_dir = Path(tempfile.mkdtemp(prefix="docx_normalize_"))
+              
+              try:
+                  # Extract DOCX (which is a ZIP)
+                  with zipfile.ZipFile(input_path, 'r') as zip_in:
+                      zip_in.extractall(temp_dir)
+                  
+                  # Process all XML files
+                  for xml_file in temp_dir.rglob("*.xml"):
+                      try:
+                          original_text = xml_file.read_text(encoding='utf-8')
+                          normalized_text, count = normalize_xml_text(original_text)
+                          
+                          if count > 0:
+                              xml_file.write_text(normalized_text, encoding='utf-8')
+                              total_replacements += count
+                      except Exception as e:
+                          print(f"⚠️  Warning: Could not process {xml_file.name}: {e}")
+                  
+                  # Repackage as DOCX
+                  with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zip_out:
+                      for file_path in sorted(temp_dir.rglob("*")):
+                          if file_path.is_file():
+                              arcname = file_path.relative_to(temp_dir).as_posix()
+                              zip_out.write(file_path, arcname)
+                  
+                  return output_path, total_replacements
+              
+              finally:
+                  shutil.rmtree(temp_dir, ignore_errors=True)
+
+          def main():
+              template_dir = Path("template")
+              
+              if not template_dir.exists():
+                  print("⚠️  No template/ directory found")
+                  return 0
+              
+              docx_files = list(template_dir.glob("*.docx"))
+              # Skip already-fixed files
+              docx_files = [f for f in docx_files if ".fixed." not in f.name]
+              
+              if not docx_files:
+                  print("ℹ️  No DOCX files to normalize")
+                  return 0
+              
+              print(f"📄 Found {len(docx_files)} template(s) to normalize")
+              
+              for docx_file in docx_files:
+                  print(f"\n🔧 Processing: {docx_file.name}")
+                  output_file, replacements = process_docx(docx_file)
+                  
+                  if replacements > 0:
+                      print(f"   ✅ Fixed {replacements} tag(s) → {output_file.name}")
+                  else:
+                      print(f"   ℹ️  No changes needed → {output_file.name}")
+              
+              return 0
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          PYTHON
+          
+          chmod +x scripts/normalize_docx.py
+
+      - name: Normalize DOCX templates
+        run: |
+          set -e
+          echo "🔧 Normalizing DOCX templates..."
+          python3 scripts/normalize_docx.py
+          
+          # Show what was created
+          if ls template/*.fixed.docx 1> /dev/null 2>&1; then
+            echo "✅ Normalized templates:"
+            ls -lh template/*.fixed.docx
+          else
+            echo "ℹ️  No templates were normalized (already in correct format or none found)"
+          fi
+
+      # ===== STEP 3: Patch index.html =====
+      - name: Patch index.html for local libraries
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            const indexPath = 'index.html';
+            
+            if (!fs.existsSync(indexPath)) {
+              core.setFailed('❌ index.html not found at repository root');
+              return;
+            }
+            
+            console.log('🔧 Patching index.html...');
+            let html = fs.readFileSync(indexPath, 'utf8');
+            let changes = 0;
+            
+            // 1. Remove CDN script tags
+            const cdnPattern = /<script[^>]+(unpkg\.com|cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com)[^>]*docxtemplater[^>]*>\s*<\/script>|<script[^>]+(unpkg\.com|cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com)[^>]*pizzip[^>]*>\s*<\/script>|<script[^>]+(unpkg\.com|cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com)[^>]*mammoth[^>]*>\s*<\/script>/gi;
+            const beforeCDN = html;
+            html = html.replace(cdnPattern, '');
+            if (html !== beforeCDN) {
+              changes++;
+              console.log('   ✅ Removed CDN script tags');
+            }
+            
+            // 2. Add local library scripts (if not already present)
+            if (!html.includes('libs/pizzip.min.js')) {
+              const libScripts = `
+            <script src="libs/pizzip.min.js"></script>
+            <script src="libs/pizzip-utils.min.js"></script>
+            <script src="libs/docxtemplater.js"></script>
+            <script src="libs/mammoth.browser.min.js"></script>`;
+              
+              html = html.replace(/(<head[^>]*>)/i, `$1${libScripts}`);
+              changes++;
+              console.log('   ✅ Added local library script tags');
+            }
+            
+            // 3. Update template references to use .fixed.docx
+            const beforeTemplate = html;
+            html = html.replace(/(['"])template\/([^'"]+?)\.docx(['"])/g, '$1template/$2.fixed.docx$3');
+            if (html !== beforeTemplate) {
+              changes++;
+              console.log('   ✅ Updated template references to .fixed.docx');
+            }
+            
+            // 4. Add safe composer function (if not present)
+            if (!html.includes('composeDocxBlobPatched')) {
+              const composerScript = `
+            <!-- Safe DOCX Composer -->
+            <script>
+            window.composeDocxBlob = async function(arrayBuffer, data) {
+              try {
+                const zip = new PizZip(arrayBuffer);
+                const doc = new docxtemplater(zip, {
+                  paragraphLoop: true,
+                  linebreaks: true,
+                  errorLogging: true,
+                  delimiters: { start: '{{', end: '}}' },
+                  nullGetter() { return ''; }
+                });
+                
+                doc.render(data || {});
+                
+                return doc.getZip().generate({
+                  type: 'blob',
+                  mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                });
+              } catch (error) {
+                console.error('DOCX composition error:', error);
+                throw error;
+              }
+            };
+            window.composeDocxBlobPatched = true;
+            </script>`;
+              
+              html += composerScript;
+              changes++;
+              console.log('   ✅ Added safe composer function');
+            }
+            
+            // Write back
+            fs.writeFileSync(indexPath, html, 'utf8');
+            console.log(`\n✅ index.html patched (${changes} change(s))`);
+
+      # ===== STEP 4: Smoke Test =====
+      - name: Install test dependencies
+        run: |
+          npm install --no-save --no-audit --no-fund \
+            docxtemplater@3.66.6 \
+            pizzip@3.2.0 \
+            mammoth@1.11.0
+
+      - name: Create smoke test data
+        run: |
+          mkdir -p tests
+          cat > tests/smoke_data.json <<'JSON'
+          {
+            "meta": {
+              "poNumber": "TEST-2025-001",
+              "issueDate": "2025-01-15",
+              "subject": "Smoke Test Order",
+              "projectName": "CI/CD Test Project",
+              "manufacturerName": "Test Manufacturer Inc.",
+              "manufacturerCountry": "Test Country",
+              "amount": 50000,
+              "amountWords": "Fifty Thousand",
+              "currency": "USD",
+              "currencyFa": "دلار",
+              "deliveryDays": 14,
+              "deliveryType": "Standard"
+            },
+            "items": [
+              {
+                "row": 1,
+                "description": "Test Item A",
+                "qty": 10,
+                "unit": "EA",
+                "unitPrice": 2500,
+                "total": 25000
+              },
+              {
+                "row": 2,
+                "description": "Test Item B",
+                "qty": 5,
+                "unit": "EA",
+                "unitPrice": 5000,
+                "total": 25000
+              }
+            ],
+            "clauses": {
+              "delivery": "FOB",
+              "payment": "Net 30",
+              "warranty": "12 months"
+            }
+          }
+          JSON
+
+      - name: Run smoke test
+        run: |
+          cat > tests/smoke_test.js <<'JAVASCRIPT'
+          const fs = require('fs');
+          const path = require('path');
+          const PizZip = require('pizzip');
+          const Docxtemplater = require('docxtemplater');
+          const mammoth = require('mammoth');
+
+          (async () => {
+            console.log('🧪 Running smoke test...\n');
+            
+            // Find the fixed template
+            const templateDir = 'template';
+            const templates = fs.readdirSync(templateDir)
+              .filter(f => f.endsWith('.fixed.docx'));
+            
+            if (templates.length === 0) {
+              console.log('⚠️  No .fixed.docx template found, skipping smoke test');
+              process.exit(0);
+            }
+            
+            const templatePath = path.join(templateDir, templates[0]);
+            console.log(`📄 Using template: ${templates[0]}`);
+            
+            // Load template and data
+            const templateBuffer = fs.readFileSync(templatePath);
+            const testData = JSON.parse(
+              fs.readFileSync('tests/smoke_data.json', 'utf8')
+            );
+            
+            // Render document
+            console.log('🔧 Rendering document...');
+            const zip = new PizZip(templateBuffer);
+            const doc = new Docxtemplater(zip, {
+              paragraphLoop: true,
+              linebreaks: true,
+              errorLogging: true,
+              delimiters: { start: '{{', end: '}}' },
+              nullGetter() { return ''; }
+            });
+            
+            try {
+              doc.render(testData);
+            } catch (error) {
+              console.error('❌ Render failed:', error.message);
+              if (error.properties) {
+                console.error('Error details:', JSON.stringify(error.properties, null, 2));
+              }
+              process.exit(1);
+            }
+            
+            // Generate output
+            const outputBuffer = doc.getZip().generate({ type: 'nodebuffer' });
+            fs.mkdirSync('dist', { recursive: true });
+            const outputPath = path.join('dist', 'smoke-test-output.docx');
+            fs.writeFileSync(outputPath, outputBuffer);
+            console.log(`✅ Generated: ${outputPath}`);
+            
+            // Verify no leftover tags
+            console.log('🔍 Checking for unrendered tags...');
+            const htmlResult = await mammoth.convertToHtml({ buffer: outputBuffer });
+            const leftoverTags = htmlResult.value.match(/\{\{[^}]+\}\}/g);
+            
+            if (leftoverTags) {
+              console.error('❌ Found unrendered tags:', leftoverTags);
+              process.exit(1);
+            }
+            
+            console.log('✅ No unrendered tags found');
+            console.log('\n✅ Smoke test PASSED');
+          })();
+          JAVASCRIPT
+          
+          node tests/smoke_test.js
+
+      - name: Clean up node_modules
+        run: |
+          rm -rf node_modules package-lock.json
+
+      # ===== STEP 5: Commit Changes =====
+      - name: Commit changes back to repository
+        run: |
+          set -e
+          
+          git add -A
+          
+          if git diff --staged --quiet; then
+            echo "ℹ️  No changes to commit"
+          else
+            echo "📝 Committing changes..."
+            git commit -m "chore: vendor libs, normalize templates, patch index.html [skip ci]"
+            git push origin HEAD:${{ github.ref_name }}
+            echo "✅ Changes committed and pushed"
+          fi
+
+      # ===== STEP 6: Configure GitHub Pages =====
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+  # ===== DEPLOY JOB =====
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main'
+    
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
