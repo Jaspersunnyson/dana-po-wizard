@@ -7,10 +7,10 @@ const mammoth = require('mammoth');
 (async () => {
   console.log('🧪 Running smoke test...\n');
   
-  // Use the minimal template file without malformed loops
-  const templateDir = 'template-minimal';
-  const templateFile = 'po-noban.template.minimal.docx';
-  const templatePath = path.join(templateDir, templateFile);
+    // Use the main template file
+    const templateDir = 'template';
+    const templateFile = 'po-noban.template.docx';
+    const templatePath = path.join(templateDir, templateFile);
   
   if (!fs.existsSync(templatePath)) {
     console.log('⚠️  Template file not found, skipping smoke test');

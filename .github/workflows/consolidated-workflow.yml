@@ -372,9 +372,9 @@ jobs:
           (async () => {
             console.log('🧪 Running smoke test...\n');
             
-            // Use the minimal template file without malformed loops
-            const templateDir = 'template-minimal';
-            const templateFile = 'po-noban.template.minimal.docx';
+            // Use the main template file
+            const templateDir = 'template';
+            const templateFile = 'po-noban.template.docx';
             const templatePath = path.join(templateDir, templateFile);
             
             if (!fs.existsSync(templatePath)) {
