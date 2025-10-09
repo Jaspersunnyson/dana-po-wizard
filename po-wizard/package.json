@@ -1,0 +1,13 @@
+{
+  "type": "module",
+  "scripts": {
+    "pdf": "node scripts/render-po.mjs pdf",
+    "docx": "node scripts/render-po.mjs docx",
+    "build": "npm run pdf && npm run docx"
+  },
+  "dependencies": {
+    "mustache": "^4.2.0",
+    "playwright": "^1.48.0",
+    "html-to-docx": "^1.4.0"
+  }
+}
