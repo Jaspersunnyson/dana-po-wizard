@@ -1089,7 +1089,7 @@
     </div>
     
     <div class="actions">
-      <span class="hint">اگر فایل الگو ندهید از مسیر <code>template/po-noban.template.docx</code> خوانده می‌شود.</span>
+      <span class="hint">اگر فایل الگو ندهید از مسیر <code>template-minimal/po-noban.template.minimal.docx</code> خوانده می‌شود.</span>
       <button class="btn primary" id="go2" data-go-step="2">
         ادامه
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1416,7 +1416,7 @@
         بازگشت
       </button>
       <div>
-        <span class="hint">بدون سرور می‌توانید فایل الگو را در مرحله ۱ بارگذاری کنید. برای بارگذاری خودکار: <code>template/po-noban.template.docx</code></span>
+        <span class="hint">بدون سرور می‌توانید فایل الگو را در مرحله ۱ بارگذاری کنید. برای بارگذاری خودکار: <code>template-minimal/po-noban.template.minimal.docx</code></span>
       </div>
       <div class="row">
         <button class="btn primary" id="downloadDocx">
@@ -1635,8 +1635,8 @@ document.getElementById('back5').addEventListener('click', () => showStage('4'))
 /* ---------- state ---------- */
 function $(id) { return document.getElementById(id) }
 const CURRENCY_FA = {IRR: 'ریال', USD: 'دلار آمریکا', EUR: 'یورو', AED: 'درهم'};
-const TEMPLATE_NAME = 'po-noban.template.docx';
-const TEMPLATE_PATH = `template/${TEMPLATE_NAME}`;
+const TEMPLATE_NAME = 'po-noban.template.minimal.docx';
+const TEMPLATE_PATH = `template-minimal/${TEMPLATE_NAME}`;
 
 const state = {
   template: 'po-noban',
