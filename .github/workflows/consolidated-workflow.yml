@@ -372,18 +372,17 @@ jobs:
           (async () => {
             console.log('🧪 Running smoke test...\n');
             
-            // Find the fixed template
+            // Use the main template file
             const templateDir = 'template';
-            const templates = fs.readdirSync(templateDir)
-              .filter(f => f.endsWith('.fixed.docx'));
+            const templateFile = 'po-noban.template.docx';
+            const templatePath = path.join(templateDir, templateFile);
             
-            if (templates.length === 0) {
-              console.log('⚠️  No .fixed.docx template found, skipping smoke test');
+            if (!fs.existsSync(templatePath)) {
+              console.log('⚠️  Template file not found, skipping smoke test');
               process.exit(0);
             }
             
-            const templatePath = path.join(templateDir, templates[0]);
-            console.log(`📄 Using template: ${templates[0]}`);
+            console.log(`📄 Using template: ${templateFile}`);
             
             // Load template and data
             const templateBuffer = fs.readFileSync(templatePath);

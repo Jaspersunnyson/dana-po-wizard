@@ -1,39 +1,39 @@
 {
   "meta": {
     "poNumber": "TEST-2025-001",
-    "issueDate": "2025-01-15",
+    "issueDateOut": "2025-01-15",
     "subject": "Smoke Test Order",
     "projectName": "CI/CD Test Project",
     "manufacturerName": "Test Manufacturer Inc.",
     "manufacturerCountry": "Test Country",
     "amount": 50000,
     "amountWords": "Fifty Thousand",
-    "currency": "USD",
     "currencyFa": "دلار",
-    "deliveryDays": 14,
-    "deliveryType": "Standard"
+    "deliveryDeadlineDays": 14,
+    "term": "Test terms and conditions",
+    "hasKaveh": false,
+    "isSingleSigner": true,
+    "allowBuyerRep": false,
+    "hasWarranty": true,
+    "warrantyMonths": 12,
+    "fxSettlement": false,
+    "leadtimeTrigger": false,
+    "offerNumber": "OFF-2025-001",
+    "offerDate": "2025-01-10"
   },
   "items": [
     {
-      "row": 1,
-      "description": "Test Item A",
-      "qty": 10,
-      "unit": "EA",
-      "unitPrice": 2500,
-      "total": 25000
-    },
-    {
-      "row": 2,
-      "description": "Test Item B",
-      "qty": 5,
-      "unit": "EA",
-      "unitPrice": 5000,
-      "total": 25000
+      "description": "Test Item 1",
+      "quantity": 1,
+      "unitPrice": 50000,
+      "totalPrice": 50000
     }
   ],
-  "clauses": {
-    "delivery": "FOB",
-    "payment": "Net 30",
-    "warranty": "12 months"
-  }
+  "clauses": [
+    {
+      "title": "Test Clause",
+      "content": "This is a test clause for smoke testing"
+    }
+  ],
+  "attachments": []
 }
